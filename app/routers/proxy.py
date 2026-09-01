@@ -80,6 +80,7 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/dashboard/positions", None, _DENY),
     ("/api/dashboard/equity-curve", None, _DENY),
     ("/api/dashboard/closed-trades", None, _DENY),
+    ("/api/dashboard/risk-status", "dashboard:read", _DENY),  # 风控三卡（熔断/日亏闸/馈送健康度）
     ("/api/feed/", None, _DENY),
     # ---- 交易/账户写操作 ----
     ("/api/hl/place-order", None, "trade:execute"),
@@ -101,7 +102,7 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/agent/config", "config:read", "config:write"),
     # ---- 运维/监控（不经 BFF 暴露）----
     ("/metrics", _DENY, _DENY),
-    ("/postmortems", "postmortems:read", _DENY),
+    ("/api/postmortems", "postmortems:read", _DENY),  # trader 实际路径带 /api 前缀
     ("/api/health", None, _DENY),
 ]
 

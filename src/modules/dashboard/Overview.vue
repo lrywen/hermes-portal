@@ -14,6 +14,10 @@ import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { useToast } from '@/stores/toast';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import { useRiskCardsStore } from '@/stores/riskCards';
+import RiskStatusCard from './components/RiskStatusCard.vue';
+import LiquidationAlertCard from './components/LiquidationAlertCard.vue';
+import FeedMonitorCard from './components/FeedMonitorCard.vue';
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent]);
 
@@ -168,6 +172,8 @@ onMounted(() => {
   // SSE 事件驱动：loop_heartbeat 实时更新 KPI 卡片，position_update 更新持仓数
   const sse = useSseFeedStore();
   sseUnsub = sse.onEvent(handleSseEvent);
+  // 风控三卡：独立 5s 轮询 risk-status + positions（store 内启动/停止）
+  useRiskCardsStore().start();
   // 60s 兜底轮询：刷新权益曲线 + 最近平仓表（SSE 不携带曲线数据）
   timer = window.setInterval(fetchAll, 60000);
 });
@@ -175,6 +181,7 @@ onUnmounted(() => {
   if (timer) window.clearInterval(timer);
   sseUnsub?.();
   sseUnsub = null;
+  useRiskCardsStore().stop();
 });
 </script>
 
@@ -219,6 +226,13 @@ onUnmounted(() => {
           <div class="text-xs text-[var(--text-muted)]">持仓数</div>
           <div class="text-2xl font-semibold mt-1 text-purple-400">{{ summary?.open_positions ?? 0 }}</div>
         </div>
+      </div>
+
+      <!-- 风控三卡：熔断/日亏闸 · 强平价预警 · 行情流监控（10x 杠杆核心风控可视化） -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <RiskStatusCard />
+        <LiquidationAlertCard />
+        <FeedMonitorCard />
       </div>
 
       <!-- 权益曲线 + DEX 分布 -->

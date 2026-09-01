@@ -10,6 +10,7 @@ import http from '@/shared/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/stores/toast';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import { liqDistPct, liqLevel } from '@/shared/utils/liquidation';
 
 const auth = useAuthStore();
 const toast = useToast();
@@ -92,6 +93,14 @@ function pnlColor(v: number | undefined | null) {
   return '';
 }
 
+// 距强平距离着色（与强平价预警卡片同一阈值）：<10% 红、<20% 琥珀，其余常态
+function liqDistColor(p: any) {
+  const lv = liqLevel(liqDistPct(p));
+  if (lv === 'danger') return 'text-rose-400';
+  if (lv === 'warn') return 'text-amber-400';
+  return 'text-[var(--text-muted)]';
+}
+
 // 汇总
 const totalUPnL = computed(() => positions.value.reduce((s, p) => s + (Number(p.unrealized_pnl_usd) || 0), 0));
 const longCount = computed(() => positions.value.filter((p) => p.side === 'long').length);
@@ -172,6 +181,7 @@ onUnmounted(() => {
               <th class="py-2 px-3 font-medium text-right">杠杆</th>
               <th class="py-2 px-3 font-medium text-right">开仓价</th>
               <th class="py-2 px-3 font-medium text-right">标记价</th>
+              <th class="py-2 px-3 font-medium text-right">强平价</th>
               <th class="py-2 px-3 font-medium text-right">未实现盈亏</th>
               <th class="py-2 px-3 font-medium text-right">ROE %</th>
               <th class="py-2 px-3 font-medium text-right">现货 %</th>
@@ -189,6 +199,15 @@ onUnmounted(() => {
               <td class="py-2.5 px-3 font-mono text-right text-[var(--text-muted)]">{{ p.leverage || 1 }}x</td>
               <td class="py-2.5 px-3 font-mono text-right">{{ fmt(p.entry_px, 4) }}</td>
               <td class="py-2.5 px-3 font-mono text-right">{{ fmt(p.mark_px, 4) }}</td>
+              <td class="py-2.5 px-3 font-mono text-right">
+                <template v-if="p.liq_px != null">
+                  <div>{{ fmt(p.liq_px, 2) }}</div>
+                  <div class="text-[10px]" :class="liqDistColor(p)">
+                    距强平 {{ liqDistPct(p)?.toFixed(1) }}%
+                  </div>
+                </template>
+                <span v-else class="text-[var(--text-muted)]">—</span>
+              </td>
               <td class="py-2.5 px-3 font-mono text-right font-medium" :class="pnlColor(p.unrealized_pnl_usd)">
                 {{ p.unrealized_pnl_usd >= 0 ? '+' : '' }}${{ fmt(p.unrealized_pnl_usd, 2) }}
               </td>
@@ -213,7 +232,7 @@ onUnmounted(() => {
               </td>
             </tr>
             <tr v-if="positions.length === 0">
-              <td colspan="11" class="py-10 text-center text-[var(--text-muted)]">
+              <td colspan="12" class="py-10 text-center text-[var(--text-muted)]">
                 当前没有持仓
                 <div class="mt-1 text-xs">开仓后将在此实时显示</div>
               </td>
