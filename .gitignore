@@ -1,0 +1,29 @@
+# ── 依赖 ──────────────────────────────────────────────
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── 构建产物 ──────────────────────────────────────────
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# ── 本地数据与密钥（严禁入库）────────────────────────
+# portal.db 含 bcrypt 密码哈希与推送渠道密钥；voices/ 为自定义语音上传
+data/
+*.db
+*.db-*
+voices/
+.env
+.env.*
+
+# ── 编辑器 / 系统 / 日志 ─────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+*.log
+npm-debug.log*

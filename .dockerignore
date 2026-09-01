@@ -1,0 +1,30 @@
+# 依赖 / 构建
+node_modules
+dist
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 本地数据
+data
+portal.db
+portal.db-*
+voices
+
+# 编辑器 / 系统
+.vscode
+.idea
+.DS_Store
+*.log
+npm-debug.log*
+
+# Git
+.git
+.gitignore
+
+# 文档 / 测试（按需保留）
+docs
+tests
