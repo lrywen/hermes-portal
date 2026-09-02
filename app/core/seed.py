@@ -57,6 +57,13 @@ DEFAULT_ALERT_EVENTS = [
     "feed_status",
 ]
 
+# 版本升级后新增、需回填给「已存在」提醒配置的事件类型。
+# 仅包含老配置创建时尚不存在、用户无从主动取消的新事件，
+# 因此幂等补入不会覆盖用户对其它事件的显式勾选/取消。
+MIGRATION_ALERT_EVENTS = [
+    "feed_status",  # P4 实时化：行情馈送降级/中断（ws_status）弹窗与语音
+]
+
 
 async def run_seed(db: AsyncSession) -> None:
     """幂等种子初始化。"""
@@ -114,6 +121,12 @@ async def run_seed(db: AsyncSession) -> None:
                 event_voices={},
             )
         )
+    else:
+        # 幂等回填：给老配置补入版本升级后新增的事件类型（不改动用户既有勾选）
+        existing = list(alert.event_types or [])
+        missing = [e for e in MIGRATION_ALERT_EVENTS if e not in existing]
+        if missing:
+            alert.event_types = existing + missing
 
     # 6. 内置推送渠道占位
     for ch, ch_type, name in [
