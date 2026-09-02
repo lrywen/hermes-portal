@@ -85,6 +85,7 @@ import { useAuthStore } from '@/stores/auth';
 import { usePortalStore } from '@/stores/portal';
 import { useAlertStore } from '@/stores/alerts';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import http from '@/shared/api/client';
 
 const auth = useAuthStore();
 const portal = usePortalStore();
@@ -147,6 +148,30 @@ const statusTitleText = computed(() => {
 });
 let unsubFeedStatus: (() => void) | null = null;
 
+// P1-7：馈送灯初始化。ws_status 是边沿事件（稳态运行时 0 条，且需 operator
+// feed 才可见），导致会话初值 unknown 恒为灰灯。改用 /api/dashboard/risk-status
+// 的 feed_status（与 FeedMonitorCard 同一数据源，匿名可访问、5s 服务端缓存）
+// 在挂载时拉取一次基线并周期兜底刷新；ws_status 边沿事件仍优先覆盖（它区分
+// WS 实时 vs REST 降级，粒度更细）。risk-status 枚举 live/stale/offline 映射到
+// 本灯 ok/degraded/down。
+function mapRiskFeedStatus(raw: unknown): FeedState | null {
+  const s = String(raw ?? '').toLowerCase();
+  if (s === 'live') return 'ok';
+  if (s === 'stale') return 'degraded';
+  if (s === 'offline') return 'down';
+  return null;
+}
+async function refreshFeedFromRisk() {
+  try {
+    const { data } = await http.get('/api/portal/trader/api/dashboard/risk-status');
+    const mapped = mapRiskFeedStatus(data?.feed_status);
+    if (mapped) feedStatus.value = mapped;
+  } catch {
+    // 拉取失败保持现状（unknown 或上一次状态），不误报降级/中断。
+  }
+}
+let feedPollTimer: number | null = null;
+
 // 诊断面板
 const diagOpen = ref(false);
 const now = ref(Date.now());
@@ -160,9 +185,14 @@ onMounted(() => {
       feedStatus.value = s;
     }
   });
+  // P1-7：挂载即拉 risk-status 基线（消除灰灯），并 30s 兜底轮询；
+  // ws_status 边沿事件仍在上方订阅，到达时优先覆盖。
+  void refreshFeedFromRisk();
+  feedPollTimer = window.setInterval(() => void refreshFeedFromRisk(), 30000);
 });
 onBeforeUnmount(() => {
   if (tickTimer) clearInterval(tickTimer);
+  if (feedPollTimer) { clearInterval(feedPollTimer); feedPollTimer = null; }
   if (unsubFeedStatus) { unsubFeedStatus(); unsubFeedStatus = null; }
 });
 const lastMessageAge = computed(() => {
