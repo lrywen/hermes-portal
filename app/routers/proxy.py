@@ -81,6 +81,12 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/dashboard/equity-curve", None, _DENY),
     ("/api/dashboard/closed-trades", None, _DENY),
     ("/api/dashboard/risk-status", "dashboard:read", _DENY),  # 风控三卡（熔断/日亏闸/馈送健康度）
+    # Audit 2026-09-07 (M2): shadow risk-arm grading center. Grades contain gate
+    # posture (off/shadow/enforce) and blind-gap signals -> operator-only read;
+    # refresh is a manual recompute (write) -> operator:mode. PROMOTE stays a
+    # suggestion; no gate/config mutation happens through these endpoints.
+    ("/api/dashboard/shadow-arms", "operator:mode", "operator:mode"),
+    ("/api/dashboard/shadow/", "shadow:read", "shadow:manage"),  # SHADOW 影子账本（读=模拟数据查看，写=重置/手动平仓）
     ("/api/feed/", None, _DENY),
     # ---- 交易/账户写操作 ----
     ("/api/hl/place-order", None, "trade:execute"),
@@ -294,6 +300,7 @@ async def menu(user: User = Depends(get_current_user)):
             "children": [
                 {"id": "positions", "label": "持仓", "path": "/positions", "icon": "Wallet"},
                 {"id": "trades", "label": "交易历史", "path": "/trades", "icon": "History"},
+                {"id": "shadow-book", "label": "影子账本", "path": "/shadow-book", "icon": "Ghost"},
                 {"id": "analysis", "label": "深度分析", "path": "/analysis", "icon": "BarChart3"},
             ],
         },

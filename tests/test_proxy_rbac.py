@@ -48,6 +48,18 @@ MATRIX = [
     # /metrics 上下游监控不经 BFF 暴露
     ("GET", "/metrics",
      {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
+    # Audit 2026-09-07 (M2): 影子臂评级中心含闸门姿态/blind 信号，读/写均 operator:mode
+    ("GET", "/api/dashboard/shadow-arms/grades",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("GET", "/api/dashboard/shadow-arms/grade-history?days=30",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("POST", "/api/dashboard/shadow-arms/refresh",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    # 影子账本（shadow/，连字符不同前缀）不受 shadow-arms 规则影响，仍四角色可读
+    ("GET", "/api/dashboard/shadow/book",
+     {"viewer": 200, "trader": 200, "operator": 200, "admin": 200}),
+    ("POST", "/api/dashboard/shadow/reset",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
 ]
 
 
@@ -94,3 +106,10 @@ def test_required_permission_rules_unit():
     # 未登记写默认拒绝、未登记读登录放行
     assert _required_permission("/api/totally/new/path", "POST") is False
     assert _required_permission("/api/totally/new/path", "GET") is None
+    # Audit 2026-09-07 (M2): 影子臂评级中心读/写均 operator:mode（含闸门姿态，operator-only）
+    assert _required_permission("/api/dashboard/shadow-arms/grades", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/grade-history", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/refresh", "POST") == "operator:mode"
+    # 连字符前缀不得误伤影子账本 shadow/（后者读 shadow:read、写 shadow:manage）
+    assert _required_permission("/api/dashboard/shadow/book", "GET") == "shadow:read"
+    assert _required_permission("/api/dashboard/shadow/reset", "POST") == "shadow:manage"
