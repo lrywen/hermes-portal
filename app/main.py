@@ -76,19 +76,45 @@ async def health():
 _WEB_DIST = os.getenv("PORTAL_WEB_DIST", "/app/web-portal")
 
 if os.path.isdir(_WEB_DIST):
+    # Audit 2026-09-08 (M4/M5 hotfix): 统一给 HTML 入口（StaticFiles 直出的 /portal/
+    # 与 fallback 返回的 index.html）加 no-cache，确保发版后浏览器总取最新入口；
+    # 带哈希的 /assets/* 由文件 hash 天然缓存，保持不动。
+    @app.middleware("http")
+    async def _html_no_cache(request: Request, call_next):
+        resp = await call_next(request)
+        ctype = resp.headers.get("content-type", "")
+        if not request.url.path.startswith("/api/") and "text/html" in ctype:
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
+
     app.mount(
         "/portal",
         StaticFiles(directory=_WEB_DIST, html=True),
         name="portal-web",
     )
 
-    # Vue SPA history mode：非 API 的 404 请求回退到 index.html，由前端路由处理
+    # Vue SPA history mode：非 API 的 404 请求回退到 index.html，由前端路由处理。
+    # Audit 2026-09-08 (M4/M5 hotfix):
+    # 1) 缺失的带哈希静态资源（/assets/*.js/.css）必须返回真实 404，绝不回退成
+    #    index.html——否则发版后旧页面引用已删除的旧 hash chunk，会拿到 200+HTML，
+    #    浏览器以 <script> 加载 HTML 导致模块解析失败、路由静默回退到 /overview。
+    # 2) index.html 入口显式 no-cache，避免浏览器启发式缓存旧入口引用过期 chunk。
+    _ASSET_SUFFIXES = (".js", ".mjs", ".css", ".map", ".png", ".jpg", ".jpeg",
+                       ".gif", ".svg", ".woff", ".woff2", ".ttf", ".ico", ".webp")
+
     @app.exception_handler(StarletteHTTPException)
     async def _spa_fallback(request: Request, exc: StarletteHTTPException):
-        if exc.status_code == 404 and not request.url.path.startswith("/api/"):
+        path = request.url.path
+        if exc.status_code == 404 and not path.startswith("/api/"):
+            # 静态资源（含 /assets/ 带哈希文件）缺失：返回真实 404，不回退 HTML
+            if path.startswith("/portal/assets/") or path.lower().endswith(_ASSET_SUFFIXES):
+                return JSONResponse({"detail": "asset not found"}, status_code=404)
             index = os.path.join(_WEB_DIST, "index.html")
             if os.path.isfile(index):
-                return FileResponse(index)
+                return FileResponse(
+                    index,
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+                )
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 else:
     @app.get("/portal", include_in_schema=False)
