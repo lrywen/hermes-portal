@@ -110,6 +110,17 @@ export function mapTraderEvent(data: any): MappedEvent | null {
         content: `当日盈亏 ${fmtUSD(data.daily_pnl)}，亏损上限 ${fmtUSD(data.limit)}，强平仓位 ${data.flattened ?? '—'}`,
       };
 
+    case 'risk_gate_blind':
+      // Audit 2026-09-07 (M3): 闸门读状态失败、fail-open 放行中（保护暂时失效）。
+      // 复用 alerts 目录已有的 risk_alert code，免改 seed.py；danger 需手动关闭。
+      // trader 端该事件 operator-only（不在 _PUBLIC_FEED_EVENTS），无权限用户收不到。
+      return {
+        type: 'risk_alert',
+        level: 'danger',
+        title: '风控闸门盲跑告警（fail-open 放行中）',
+        content: `熔断门 ${data.gate ?? '—'}（币种 ${coin || '—'}）读状态失败，保护暂时失效：${data.error ?? '—'}`,
+      };
+
     case 'place_order':
       return {
         type: 'order_filled',

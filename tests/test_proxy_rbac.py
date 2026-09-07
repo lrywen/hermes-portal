@@ -89,6 +89,35 @@ async def test_proxy_requires_auth(client):
     assert resp.status_code == 401
 
 
+def _menu_paths(items) -> set:
+    paths = set()
+    for it in items:
+        if it.get("path"):
+            paths.add(it["path"])
+        for child in it.get("children", []) or []:
+            if child.get("path"):
+                paths.add(child["path"])
+    return paths
+
+
+async def test_menu_risk_arms_visibility(client, tokens):
+    """Audit 2026-09-07 (M3): 影子臂评级菜单按 operator:mode 条件下发。"""
+    async def paths_for(role: str) -> set:
+        resp = await client.get(
+            "/api/portal/menu",
+            headers={"Authorization": f"Bearer {tokens[role]}"},
+        )
+        assert resp.status_code == 200, f"角色={role} 菜单 200，实得 {resp.status_code}"
+        return _menu_paths(resp.json().get("items", []))
+
+    assert "/risk-arms" not in await paths_for("viewer")
+    assert "/risk-arms" not in await paths_for("trader")
+    assert "/risk-arms" in await paths_for("operator")
+    assert "/risk-arms" in await paths_for("admin")
+    # 对照组：系统配置菜单不受影响
+    assert "/config" in await paths_for("viewer")
+
+
 def test_required_permission_rules_unit():
     """权限规则表的直接单元断言（不依赖 DB/网络），锁死本轮修正点。"""
     # risk-status 显式读规则

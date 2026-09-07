@@ -321,6 +321,9 @@ async def menu(user: User = Depends(get_current_user)):
             "children": [
                 item for item in [
                     {"id": "operator", "label": "操作员控制台", "path": "/operator", "icon": "ShieldAlert"} if can("operator:mode") else None,
+                    # Audit 2026-09-07 (M3): shadow-arm grading center; grades
+                    # expose gate posture/blind signals -> operator-only menu.
+                    {"id": "risk-arms", "label": "影子臂评级", "path": "/risk-arms", "icon": "ShieldAlert"} if can("operator:mode") else None,
                     {"id": "config", "label": "系统配置", "path": "/config", "icon": "Sliders"},
                     {"id": "push", "label": "推送设置", "path": "/push", "icon": "BellRing"},
                     {"id": "alerts", "label": "提醒设置", "path": "/alerts", "icon": "Bell"},
