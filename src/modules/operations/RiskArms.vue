@@ -10,12 +10,20 @@
  * - 刷新：30s 轮询 + SSE（risk_gate_blind / shadow_arms_refresh）防抖触发；
  *   operator 可点「立即重评」调 POST refresh（手动重算，不写历史快照）。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import { useRouter } from 'vue-router';
 import http from '@/shared/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/stores/toast';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import VChart from 'vue-echarts';
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { LineChart } from 'echarts/charts';
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
+
+// M5: 评级趋势图（与 Overview.vue 同一 vue-echarts 按需注册范式）
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent]);
 
 const API = '/api/portal/trader/api/dashboard/shadow-arms';
 const WINDOWS = '24,72,168';
@@ -29,6 +37,10 @@ const error = ref('');
 const refreshing = ref(false);
 const report = ref<any>(null);
 const history = ref<any[]>([]);
+
+// M5 趋势图 option（shallowRef：ECharts 大对象不走深响应）
+const verdictOption = shallowRef<any>({});
+const hitRateOption = shallowRef<any>({});
 
 let timer: number | null = null;
 let sseUnsub: (() => void) | null = null;
@@ -56,6 +68,7 @@ async function loadAll(showLoading = true) {
     ]);
     report.value = g.data;
     history.value = Array.isArray(h.data?.snapshots) ? h.data.snapshots : [];
+    buildCharts();
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '加载影子臂评级失败';
   } finally {
@@ -143,6 +156,83 @@ function snapshotCounts(snap: any) {
   const c: Record<string, number> = {};
   for (const a of snap?.arms || []) c[a.verdict] = (c[a.verdict] || 0) + 1;
   return c;
+}
+
+// ---------------------------------------------------------------- M5 趋势图
+const AXIS_STYLE = { axisLine: { lineStyle: { color: '#232A3B' } }, axisLabel: { color: '#6B7280', fontSize: 10 }, splitLine: { show: false } };
+const TOOLTIP_STYLE = { backgroundColor: '#0B0E14', borderColor: '#232A3B', textStyle: { color: '#E5E7EB', fontSize: 11 } };
+
+// M5: 由 grade-history 快照构建两张趋势图：
+//   1) 每晚评级分布堆叠面积（DATA_GAP/REVIEW/PROMOTE/采集中/OFF 条数走势）
+//   2) 当前 enforce/shadow 各臂命中率走势（长窗 hit_rate，0 决策的点置 null 断线）
+function buildCharts() {
+  const snaps = history.value;
+  if (!snaps.length) {
+    verdictOption.value = {};
+    hitRateOption.value = {};
+    return;
+  }
+  const xData = snaps.map((s) => fmtDay(s.ts));
+
+  const VERDICT_SERIES: [string, string, string][] = [
+    ['DATA_GAP', '采数缺口', '#F43F5E'],
+    ['REVIEW', '建议复核', '#F59E0B'],
+    ['PROMOTE_CANDIDATE', '可升级', '#10B981'],
+    ['COLLECTING', '采集中', '#818CF8'],
+    ['OFF', '已关闭', '#64748B'],
+  ];
+  verdictOption.value = {
+    backgroundColor: 'transparent',
+    grid: { left: 40, right: 16, top: 28, bottom: 28 },
+    tooltip: { trigger: 'axis', ...TOOLTIP_STYLE },
+    legend: { textStyle: { color: '#9CA3AF', fontSize: 10 }, top: 0, itemWidth: 12, itemHeight: 8 },
+    xAxis: { type: 'category', data: xData, ...AXIS_STYLE },
+    yAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: '#1E2433' } }, axisLabel: { color: '#6B7280', fontSize: 10 } },
+    series: VERDICT_SERIES.map(([key, name, color]) => ({
+      name,
+      type: 'line',
+      stack: 'verdict',
+      smooth: true,
+      showSymbol: false,
+      areaStyle: { opacity: 0.25 },
+      lineStyle: { width: 1 },
+      itemStyle: { color },
+      // INSUFFICIENT_DATA 并入采集中（与历史表口径一致）
+      data: snaps.map((s) => (snapshotCounts(s)[key] || 0) + (key === 'COLLECTING' ? (snapshotCounts(s).INSUFFICIENT_DATA || 0) : 0)),
+    })),
+  };
+
+  // 各臂命中率：以最新评级里非 OFF 的臂为序列集合
+  const activeArms = arms.value.filter((a) => a.mode !== 'off').map((a) => a.arm);
+  hitRateOption.value = {
+    backgroundColor: 'transparent',
+    grid: { left: 44, right: 16, top: 28, bottom: 28 },
+    tooltip: {
+      trigger: 'axis',
+      ...TOOLTIP_STYLE,
+      valueFormatter: (v: any) => (v === null || v === undefined ? '—' : (Number(v) * 100).toFixed(1) + '%'),
+    },
+    legend: { textStyle: { color: '#9CA3AF', fontSize: 10 }, top: 0, type: 'scroll', itemWidth: 12, itemHeight: 8 },
+    xAxis: { type: 'category', data: xData, ...AXIS_STYLE },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 1,
+      splitLine: { lineStyle: { color: '#1E2433' } },
+      axisLabel: { color: '#6B7280', fontSize: 10, formatter: (v: number) => `${Math.round(v * 100)}%` },
+    },
+    series: activeArms.map((arm) => ({
+      name: arm,
+      type: 'line',
+      smooth: true,
+      showSymbol: false,
+      connectNulls: false,
+      data: snaps.map((s) => {
+        const sa = (s.arms || []).find((x: any) => x.arm === arm);
+        return sa && Number(sa.decisions ?? 0) > 0 ? Number(sa.hit_rate ?? 0) : null;
+      }),
+    })),
+  };
 }
 
 onMounted(() => {
@@ -289,10 +379,26 @@ onUnmounted(() => {
         </table>
       </div>
 
-      <!-- 每晚评级历史 -->
+      <!-- 每晚评级历史 + M5 趋势图 -->
+      <div v-if="history.length" class="card">
+        <div class="text-sm font-medium mb-3 px-1">
+          评级趋势（近 30 天，{{ history.length }} 个每晚快照）
+        </div>
+        <div class="grid lg:grid-cols-2 gap-4">
+          <div>
+            <div class="text-xs text-[var(--text-muted)] mb-1 px-1">每晚评级分布（条数堆叠）</div>
+            <v-chart :option="verdictOption" class="h-64 w-full" autoresize />
+          </div>
+          <div>
+            <div class="text-xs text-[var(--text-muted)] mb-1 px-1">各臂命中率走势（当前 enforce/shadow 臂）</div>
+            <v-chart :option="hitRateOption" class="h-64 w-full" autoresize />
+          </div>
+        </div>
+      </div>
+
       <div class="card overflow-x-auto">
         <div class="text-sm font-medium mb-2 px-1">
-          每晚评级历史（近 30 天，{{ history.length }} 个快照；趋势图在 M5 补齐）
+          每晚评级历史明细（近 30 天，{{ history.length }} 个快照）
         </div>
         <table class="w-full text-xs">
           <thead>

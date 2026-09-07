@@ -60,6 +60,18 @@ MATRIX = [
      {"viewer": 200, "trader": 200, "operator": 200, "admin": 200}),
     ("POST", "/api/dashboard/shadow/reset",
      {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    # Audit 2026-09-07 (M4): 台账哈希链/事件查询读收紧到 admin:audit（operator/admin），写 fail-closed
+    ("GET", "/api/dashboard/ledger/verify",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("GET", "/api/dashboard/ledger/events?event_type=order&limit=20",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("POST", "/api/dashboard/ledger/verify",
+     {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
+    # 对账状态读 operator:mode（operator/admin），写 fail-closed
+    ("GET", "/api/dashboard/reconcile/status",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("POST", "/api/dashboard/reconcile/status",
+     {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
 ]
 
 
@@ -142,3 +154,10 @@ def test_required_permission_rules_unit():
     # 连字符前缀不得误伤影子账本 shadow/（后者读 shadow:read、写 shadow:manage）
     assert _required_permission("/api/dashboard/shadow/book", "GET") == "shadow:read"
     assert _required_permission("/api/dashboard/shadow/reset", "POST") == "shadow:manage"
+    # Audit 2026-09-07 (M4): 台账链校验/事件查询读 admin:audit，写 fail-closed；
+    # 对账状态读 operator:mode，写 fail-closed
+    assert _required_permission("/api/dashboard/ledger/verify", "GET") == "admin:audit"
+    assert _required_permission("/api/dashboard/ledger/events", "GET") == "admin:audit"
+    assert _required_permission("/api/dashboard/ledger/verify", "POST") is False
+    assert _required_permission("/api/dashboard/reconcile/status", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/reconcile/status", "POST") is False

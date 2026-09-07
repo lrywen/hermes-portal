@@ -6,10 +6,18 @@
  * - 保存到 /api/dashboard/config，并提供备份/回滚/历史入口
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import http from '@/shared/api/client';
 import { useToast } from '@/stores/toast';
 
 const toast = useToast();
+const router = useRouter();
+
+// M5: 风控臂姿态与评级联动（只读，INERT）——数据来自 shadow-arms/grades，
+// 本卡不含任何改 mode/下单控件；调整臂 mode 须走评级页建议 + 人工配置。
+const arms = ref<any[]>([]);
+const armsGeneratedAt = ref('');
+const armsLoadError = ref('');
 const schema = ref<Record<string, { type: string; default: any }>>({});
 const config = reactive<Record<string, any>>({});
 const history = ref<any[]>([]);
@@ -296,9 +304,37 @@ function eventLabel(e: any): string {
   }
 }
 
+// M5: 风控臂评级（best-effort，失败不阻断配置页）
+async function loadArms() {
+  try {
+    const { data } = await http.get('/api/portal/trader/api/dashboard/shadow-arms/grades', {
+      params: { windows: '24,72,168' },
+    });
+    arms.value = Array.isArray(data?.arms) ? data.arms : [];
+    armsGeneratedAt.value = data?.generated_at || '';
+    armsLoadError.value = '';
+  } catch {
+    armsLoadError.value = '风控臂评级暂不可用（需 operator 权限或评级服务未就绪）';
+  }
+}
+
+function armModeBadge(mode: string) {
+  if (mode === 'enforce') return 'badge-ok';
+  if (mode === 'shadow') return 'badge-purple';
+  return 'badge-muted';
+}
+
+function armVerdictBadge(v: string) {
+  if (v === 'DATA_GAP') return 'badge-danger';
+  if (v === 'REVIEW') return 'badge-warn';
+  if (v === 'PROMOTE_CANDIDATE') return 'badge-ok';
+  return 'badge-muted';
+}
+
 onMounted(() => {
   load();
   loadHistory();
+  loadArms();
 });
 </script>
 
@@ -322,6 +358,53 @@ onMounted(() => {
     <div v-if="loading" class="card text-center py-10 text-[var(--text-muted)]">加载中...</div>
 
     <template v-else>
+      <!-- M5: 风控臂姿态与评级联动（只读，INERT：无任何改 mode/下单控件） -->
+      <div class="card">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <h3 class="font-semibold">🛡️ 风控臂姿态与夜间评级</h3>
+          <div class="flex items-center gap-2">
+            <span v-if="armsGeneratedAt" class="text-[10px] text-[var(--text-muted)] font-mono">评级于 {{ armsGeneratedAt }}</span>
+            <button class="btn text-xs" @click="router.push('/risk-arms')">前往评级中心 →</button>
+          </div>
+        </div>
+        <div v-if="armsLoadError" class="text-sm text-[var(--text-muted)] py-3 text-center">{{ armsLoadError }}</div>
+        <template v-else>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                  <th class="py-1.5 px-2">风控臂</th>
+                  <th class="py-1.5 px-2">当前模式</th>
+                  <th class="py-1.5 px-2">类型</th>
+                  <th class="py-1.5 px-2">夜间评级</th>
+                  <th class="py-1.5 px-2">评级说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="a in arms" :key="a.arm" class="border-b border-[var(--border)] last:border-0">
+                  <td class="py-1.5 px-2 font-mono font-semibold whitespace-nowrap">{{ a.arm }}</td>
+                  <td class="py-1.5 px-2">
+                    <span class="badge" :class="armModeBadge(a.mode)">{{ a.mode }}</span>
+                  </td>
+                  <td class="py-1.5 px-2 text-[var(--text-muted)]">{{ a.kind === 'block' ? '拦截' : a.kind === 'change' ? '调整' : (a.kind || '—') }}</td>
+                  <td class="py-1.5 px-2 whitespace-nowrap">
+                    <span class="badge" :class="armVerdictBadge(a.verdict)">{{ a.verdict_cn || a.verdict }}</span>
+                  </td>
+                  <td class="py-1.5 px-2 text-[var(--text-muted)] min-w-[200px]">{{ a.reason }}</td>
+                </tr>
+                <tr v-if="arms.length === 0">
+                  <td colspan="5" class="py-3 text-center text-[var(--text-muted)]">暂无评级数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-[11px] text-[var(--text-muted)] mt-2 leading-relaxed">
+            🔒 本卡为只读联动视图：夜间评级器仅产出建议（飞书推送），<strong>不自动修改任何臂 mode</strong>。
+            调整风控臂姿态请先在「影子臂评级中心」核对采数与命中表现，再由人工改配置。
+          </p>
+        </template>
+      </div>
+
       <!-- 原始 JSON 模式 -->
       <div v-if="rawMode" class="card">
         <textarea class="input w-full font-mono text-xs h-96" v-model="rawText"></textarea>

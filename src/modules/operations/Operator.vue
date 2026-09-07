@@ -16,6 +16,9 @@ const portal = usePortalStore();
 
 const cfg = ref<any>({});
 const trackers = ref<any[]>([]);
+// 成交对账状态（M4）：null=从未运行（trader 404），false=加载失败，对象=最近一次对账结果
+const reconcile = ref<any>(null);
+const reconcileFailed = ref(false);
 const loading = ref(true);
 const busy = ref(false);
 const command = ref('');
@@ -35,6 +38,19 @@ async function load() {
     toast.err(e?.response?.data?.detail || '加载操作员数据失败');
   } finally {
     loading.value = false;
+  }
+  // M4: 对账状态单独容错——404 表示 cron 从未运行（正常态），不弹错误
+  try {
+    const { data } = await http.get('/api/portal/trader/api/dashboard/reconcile/status');
+    reconcile.value = data;
+    reconcileFailed.value = false;
+  } catch (e: any) {
+    if (e?.response?.status === 404) {
+      reconcile.value = null;
+      reconcileFailed.value = false;
+    } else {
+      reconcileFailed.value = true;
+    }
   }
 }
 
@@ -118,6 +134,15 @@ function fmt(v: any, d = 4) {
   return Number(v).toLocaleString('en-US', { maximumFractionDigits: d });
 }
 
+function fmtTime(iso?: string) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('zh-CN', { hour12: false });
+  } catch {
+    return iso;
+  }
+}
+
 onMounted(() => {
   load();
   timer = window.setInterval(load, 10000);
@@ -154,6 +179,56 @@ onUnmounted(() => { if (timer) window.clearInterval(timer); });
           >◐ 切到 SHADOW（模拟盘）</button>
           <button class="btn btn-danger" :disabled="busy || cfg.mode === 'OFF'" @click="setMode('OFF')">⏸️ 切到 OFF</button>
         </div>
+      </div>
+
+      <!-- 成交对账状态（M4） -->
+      <div class="card">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <h3 class="font-semibold">成交对账（交易所 vs 本地台账）</h3>
+          <span v-if="reconcile" class="text-xs text-[var(--text-muted)] font-mono">
+            最近运行 {{ fmtTime(reconcile.generated_at) }} · 窗口 {{ reconcile.window_hours }}h
+          </span>
+        </div>
+        <div v-if="reconcileFailed" class="text-sm text-[var(--text-muted)] py-3 text-center">对账状态暂不可用</div>
+        <div v-else-if="!reconcile" class="text-sm text-[var(--text-muted)] py-3 text-center">
+          对账任务尚未运行（cron reconcile_fills 首次执行后此处展示状态）
+        </div>
+        <template v-else>
+          <div class="flex items-center gap-3 flex-wrap mb-3">
+            <span v-if="reconcile.status === 'clean'" class="badge-ok">对账一致</span>
+            <span v-else class="badge-danger">存在差异（{{ reconcile.issues_total }}）</span>
+            <span v-if="reconcile.backfilled_closes" class="badge-warn">已自动补录平仓 {{ reconcile.backfilled_closes }} 笔</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+            <div class="bg-white/5 rounded p-2">
+              <div class="text-xs text-[var(--text-muted)]">窗口内交易所成交</div>
+              <div class="font-mono text-lg">{{ fmt(reconcile.exchange_fills_in_window, 0) }}</div>
+            </div>
+            <div class="bg-white/5 rounded p-2">
+              <div class="text-xs text-[var(--text-muted)]">本地交易记录</div>
+              <div class="font-mono text-lg">{{ fmt(reconcile.local_trades, 0) }}</div>
+            </div>
+            <div class="bg-white/5 rounded p-2">
+              <div class="text-xs text-[var(--text-muted)]">交易所平仓</div>
+              <div class="font-mono text-lg">{{ fmt(reconcile.exchange_closes, 0) }}</div>
+            </div>
+            <div class="bg-white/5 rounded p-2">
+              <div class="text-xs text-[var(--text-muted)]">本地平仓记录</div>
+              <div class="font-mono text-lg">{{ fmt(reconcile.local_closes, 0) }}</div>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span :class="reconcile.orphan_opens_count ? 'badge-danger' : 'badge-ok'">
+              孤立开仓（交易所有/本地无）{{ reconcile.orphan_opens_count }}
+            </span>
+            <span :class="reconcile.orphan_closes_count ? 'badge-danger' : 'badge-ok'">
+              孤立平仓（交易所有/本地无）{{ reconcile.orphan_closes_count }}
+            </span>
+            <span :class="reconcile.phantom_closes_count ? 'badge-danger' : 'badge-ok'">
+              幽灵平仓（本地有/交易所无）{{ reconcile.phantom_closes_count }}
+            </span>
+          </div>
+        </template>
       </div>
 
       <!-- 追踪器 -->

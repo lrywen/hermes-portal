@@ -87,6 +87,11 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     # suggestion; no gate/config mutation happens through these endpoints.
     ("/api/dashboard/shadow-arms", "operator:mode", "operator:mode"),
     ("/api/dashboard/shadow/", "shadow:read", "shadow:manage"),  # SHADOW 影子账本（读=模拟数据查看，写=重置/手动平仓）
+    # Audit 2026-09-07 (M4): 审计台账哈希链 + 对账状态。链校验/事件查询为审计面，
+    # 读收紧到 admin:audit（admin/operator）；对账状态为运维风控面，读收紧到
+    # operator:mode（operator/admin）。两端点 trader 侧只读，写一律 fail-closed。
+    ("/api/dashboard/ledger", "admin:audit", _DENY),
+    ("/api/dashboard/reconcile", "operator:mode", _DENY),
     ("/api/feed/", None, _DENY),
     # ---- 交易/账户写操作 ----
     ("/api/hl/place-order", None, "trade:execute"),

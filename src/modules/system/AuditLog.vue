@@ -16,6 +16,19 @@ const items = ref<AuditLog[]>([]);
 const total = ref(0);
 const loading = ref(false);
 
+// 台账哈希链（trader events.jsonl）校验结果与最近事件，M4
+const chain = ref<any>(null);
+const chainErr = ref('');
+const recentEvents = ref<any[]>([]);
+
+const CHAIN_REASON: Record<string, string> = {
+  unparseable_json: 'JSON 解析失败（行损坏）',
+  hash_mismatch: '哈希不匹配（记录疑似被篡改）',
+  seq_gap: '序号断链（存在缺失记录）',
+  prev_hash_mismatch: '前序哈希不匹配（链断裂）',
+  read_error: '台账文件读取错误',
+};
+
 const filters = ref({
   action: '',
   actor: '',
@@ -46,6 +59,33 @@ async function load() {
   }
 }
 
+// M4: 加载 trader 台账哈希链校验结果与最近 20 条链式事件（best-effort，失败不阻断页面）
+async function loadChain() {
+  try {
+    const { data } = await http.get('/api/portal/trader/api/dashboard/ledger/verify');
+    chain.value = data;
+    chainErr.value = '';
+  } catch (e: any) {
+    chain.value = null;
+    chainErr.value = e?.response?.data?.detail || '哈希链校验不可用';
+    return;
+  }
+  try {
+    const { data } = await http.get('/api/portal/trader/api/dashboard/ledger/events', {
+      params: { limit: 20 },
+    });
+    // 升序返回，小表倒序展示最新在前
+    recentEvents.value = (data.events || []).slice().reverse();
+  } catch {
+    recentEvents.value = [];
+  }
+}
+
+function eventSummary(rec: any) {
+  const p = rec.payload || {};
+  return Object.keys(p).length ? JSON.stringify(p) : '—';
+}
+
 function toggleExpand(id: string) {
   if (expanded.value.has(id)) expanded.value.delete(id);
   else expanded.value.add(id);
@@ -63,7 +103,10 @@ function fmtTime(iso: string) {
 
 const totalPages = () => Math.max(1, Math.ceil(total.value / filters.value.page_size));
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadChain();
+});
 </script>
 
 <template>
@@ -72,6 +115,67 @@ onMounted(load);
       <h2 class="text-xl font-semibold">审计日志</h2>
       <p class="text-sm text-[var(--text-muted)] mt-1">所有配置变更与敏感操作的不可抵赖记录，支持追溯。</p>
     </header>
+
+    <!-- 台账哈希链完整性（M4） -->
+    <div class="card">
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <h3 class="font-semibold">交易台账哈希链完整性</h3>
+        <button class="btn text-xs" @click="loadChain">重新校验</button>
+      </div>
+      <div v-if="chainErr" class="text-sm py-4 text-center">
+        <span class="badge-muted">校验不可用</span>
+        <span class="text-[var(--text-muted)] ml-2">{{ chainErr }}</span>
+      </div>
+      <template v-else-if="chain">
+        <div class="flex items-center gap-3 flex-wrap mb-3">
+          <span v-if="chain.ok" class="badge-ok">链完整</span>
+          <span v-else class="badge-danger">链校验失败</span>
+          <span class="text-xs text-[var(--text-muted)]">
+            链式记录 <b class="font-mono">{{ chain.chained_records }}</b> 条 ·
+            最大序号 <b class="font-mono">{{ chain.last_seq }}</b> ·
+            旧格式记录 <b class="font-mono">{{ chain.legacy_records }}</b> 条 ·
+            损坏行 <b class="font-mono" :class="chain.corrupt_lines ? 'text-red-400' : ''">{{ chain.corrupt_lines }}</b>
+          </span>
+          <span v-if="chain.checked_at" class="text-xs text-[var(--text-muted)] font-mono">校验于 {{ fmtTime(chain.checked_at) }}</span>
+        </div>
+        <div v-if="!chain.ok && chain.errors && chain.errors.length" class="mb-3">
+          <div class="text-xs text-red-400 mb-1">异常明细（{{ chain.errors.length }}）：</div>
+          <div class="bg-black/40 rounded p-2 max-h-40 overflow-y-auto font-mono text-xs space-y-1">
+            <div v-for="(er, i) in chain.errors" :key="i" class="text-red-300">
+              <span class="badge-danger text-[10px]">{{ CHAIN_REASON[er.reason] || er.reason }}</span>
+              <span class="ml-2">{{ er.file || '?' }}<template v-if="er.line">:{{ er.line }}</template></span>
+              <span v-if="er.detail" class="text-[var(--text-muted)] ml-2">{{ er.detail }}</span>
+            </div>
+          </div>
+        </div>
+        <!-- 最近链式事件 -->
+        <div class="text-xs text-[var(--text-muted)] mb-1">最近链式事件（最新 20 条）</div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                <th class="py-1.5 px-2">#</th>
+                <th class="py-1.5 px-2">时间</th>
+                <th class="py-1.5 px-2">事件</th>
+                <th class="py-1.5 px-2">载荷摘要</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="rec in recentEvents" :key="rec.seq" class="border-b border-[var(--border)] last:border-0">
+                <td class="py-1.5 px-2 font-mono text-[var(--text-muted)]">{{ rec.seq }}</td>
+                <td class="py-1.5 px-2 whitespace-nowrap font-mono">{{ fmtTime(rec.timestamp) }}</td>
+                <td class="py-1.5 px-2"><span class="badge-purple font-mono text-[10px]">{{ rec.event }}</span></td>
+                <td class="py-1.5 px-2 font-mono text-[var(--text-muted)] truncate max-w-xs">{{ eventSummary(rec) }}</td>
+              </tr>
+              <tr v-if="recentEvents.length === 0">
+                <td colspan="4" class="py-3 text-center text-[var(--text-muted)]">暂无链式事件</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <div v-else class="text-sm py-4 text-center text-[var(--text-muted)]">加载中...</div>
+    </div>
 
     <!-- 过滤器 -->
     <div class="card grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
