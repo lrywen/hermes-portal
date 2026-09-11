@@ -108,6 +108,9 @@ const FIELD_LABELS: Record<string, string> = {
   entry_px: '开仓价', fill_px: '成交价', fees: '手续费', fees_pct: '手续费%',
   spot_pct: '现货占比', size: '仓位', mkt_price: '市场价', note: '备注',
   action: '动作', symbol: '标的', strategy: '策略', ts_ms: '时间戳',
+  // (supplemental audit 2026-09-02) scan 事件补「扫描耗时」；start_ts_ms 为
+  // 扫描开始时刻(epoch ms)，已用于时间列显示，详情里不重复原始数字故跳过。
+  scan_duration_ms: '扫描耗时',
 };
 
 const SIDE_LABELS: Record<string, string> = { long: '做多', short: '做空' };
@@ -289,15 +292,23 @@ async function loadHistory() {
   }
 }
 
+// (supplemental audit 2026-09-02) 事件用于显示的时间戳：scan 事件的 ts 是扫描
+// 「完成落盘」时刻，冷扫描/限流退避时会比真正开始晚数十秒甚至数分钟。优先取
+// start_ts_ms（扫描开始时刻）让时间列落在动作实际发生点；其余事件回退 ts。
+function evDisplayTs(ev: any): number | string {
+  if (ev?.event === 'scan' && ev.start_ts_ms) return ev.start_ts_ms;
+  return ev.ts || ev.timestamp || ev.ts_ms || ev.time;
+}
+
 function evTime(ev: any): string {
-  const ts = ev.ts || ev.timestamp || ev.ts_ms || ev.time;
+  const ts = evDisplayTs(ev);
   if (!ts) return '';
   const d = new Date(typeof ts === 'number' ? (ts < 1e12 ? ts * 1000 : ts) : ts);
   return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('zh-CN', { hour12: false });
 }
 
 function evDateTime(ev: any): string {
-  const ts = ev.ts || ev.timestamp || ev.ts_ms || ev.time;
+  const ts = evDisplayTs(ev);
   if (!ts) return '';
   const d = new Date(typeof ts === 'number' ? (ts < 1e12 ? ts * 1000 : ts) : ts);
   return isNaN(d.getTime()) ? '' : d.toLocaleString('zh-CN', { hour12: false });
@@ -319,7 +330,9 @@ function evSummary(ev: any): string {
 }
 
 function evDetailRows(ev: any): Array<[string, string]> {
-  const skip = new Set(['event']);
+  // (supplemental audit 2026-09-02) start_ts_ms 已用于时间列显示，不在详情里
+  // 重复裸毫秒；scan_duration_ms 转成易读的秒/毫秒。
+  const skip = new Set(['event', 'start_ts_ms']);
   const rows: Array<[string, string]> = [];
   for (const [k, v] of Object.entries(ev)) {
     if (skip.has(k)) continue;
@@ -329,6 +342,8 @@ function evDetailRows(ev: any): Array<[string, string]> {
       display = JSON.stringify(v);
     } else if (k === 'side' && SIDE_LABELS[String(v)]) {
       display = SIDE_LABELS[String(v)];
+    } else if (k === 'scan_duration_ms' && typeof v === 'number') {
+      display = v >= 1000 ? `${(v / 1000).toFixed(1)} 秒` : `${v} 毫秒`;
     } else {
       display = String(v);
     }

@@ -64,7 +64,8 @@ async function loadAll(showLoading = true) {
     if (showLoading) loading.value = true;
     const [g, h] = await Promise.all([
       http.get(`${API}/grades`, { params: { windows: WINDOWS } }),
-      http.get(`${API}/grade-history`, { params: { days: 30, limit: 400 } }),
+      // M9：趋势只看夜间 cron 快照，手动重评/手工追加（source=manual）不污染趋势
+      http.get(`${API}/grade-history`, { params: { days: 30, limit: 400, source: 'cron' } }),
     ]);
     report.value = g.data;
     history.value = Array.isArray(h.data?.snapshots) ? h.data.snapshots : [];
@@ -97,12 +98,17 @@ const baseline = computed<any>(() => report.value?.real_baseline || {});
 const windowsH = computed<number[]>(() => report.value?.windows_h || [24, 72, 168]);
 
 const gapArms = computed(() => arms.value.filter((a) => a.verdict === 'DATA_GAP'));
+// M1：enforce 降级复核与 shadow REVIEW 分开汇总，但同属「需人工关注」
+const degradedArms = computed(() => arms.value.filter((a) => a.verdict === 'ENFORCE_DEGRADED_REVIEW'));
 const reviewArms = computed(() => arms.value.filter((a) => a.verdict === 'REVIEW'));
 const promoteArms = computed(() => arms.value.filter((a) => a.verdict === 'PROMOTE_CANDIDATE'));
+const maintainArms = computed(() => arms.value.filter((a) => a.verdict === 'ENFORCE_MAINTAIN'));
 const collectingArms = computed(() =>
   arms.value.filter((a) => a.verdict === 'INSUFFICIENT_DATA' || a.verdict === 'COLLECTING'),
 );
 const offArms = computed(() => arms.value.filter((a) => a.verdict === 'OFF'));
+// M13：采数停滞（近 24h 0 写入）
+const stalledArms = computed(() => arms.value.filter((a) => a.collection_stalled));
 
 const recentHistory = computed(() => history.value.slice(-10).reverse());
 
@@ -121,8 +127,10 @@ function maturityPct(a: any): number {
 // ---------------------------------------------------------------- formatters
 const VERDICT_BADGE: Record<string, string> = {
   DATA_GAP: 'badge-danger',
+  ENFORCE_DEGRADED_REVIEW: 'badge-warn',
   REVIEW: 'badge-warn',
   PROMOTE_CANDIDATE: 'badge-ok',
+  ENFORCE_MAINTAIN: 'badge-ok',
   INSUFFICIENT_DATA: 'badge-muted',
   COLLECTING: 'badge-muted',
   OFF: 'badge-muted',
@@ -135,7 +143,7 @@ function modeBadge(mode: string) {
   if (mode === 'shadow') return 'badge-purple';
   return 'badge-muted';
 }
-const KIND_CN: Record<string, string> = { block: '拦截', change: '调整' };
+const KIND_CN: Record<string, string> = { block: '拦截', change: '调整', signal: '信号' };
 function kindCN(k: string) {
   return KIND_CN[k] || k || '—';
 }
@@ -157,6 +165,25 @@ function snapshotCounts(snap: any) {
   for (const a of snap?.arms || []) c[a.verdict] = (c[a.verdict] || 0) + 1;
   return c;
 }
+// M4：最长窗 outcome 回填率（mature/total）
+function backfillTxt(a: any) {
+  const r = Number(a?.backfill_rate ?? NaN);
+  return isNaN(r) ? '—' : (r * 100).toFixed(1) + '%';
+}
+// 分母修正后的命中集有害率（未给出口径时回退展示全记录有害率）
+function hitHarmTxt(a: any) {
+  const r = a?.hit_set_harmful_rate;
+  if (r === null || r === undefined || isNaN(Number(r))) return '—';
+  return (Number(r) * 100).toFixed(1) + '%';
+}
+const SV2_CHECK_CN: Record<string, string> = {
+  c1_sample_per_side: '分方向样本',
+  c2_source_maturity: '来源成熟度',
+  c3_cap_bind_rate: '上限绑定率',
+  c4_ratio_sanity: '比率合理性',
+  c5_carry_check: 'carry校验',
+  c6_zero_side_effects: '零副作用',
+};
 
 // ---------------------------------------------------------------- M5 趋势图
 const AXIS_STYLE = { axisLine: { lineStyle: { color: '#232A3B' } }, axisLabel: { color: '#6B7280', fontSize: 10 }, splitLine: { show: false } };
@@ -176,8 +203,10 @@ function buildCharts() {
 
   const VERDICT_SERIES: [string, string, string][] = [
     ['DATA_GAP', '采数缺口', '#F43F5E'],
+    ['ENFORCE_DEGRADED_REVIEW', 'enforce降级复核', '#FB923C'],
     ['REVIEW', '建议复核', '#F59E0B'],
     ['PROMOTE_CANDIDATE', '可升级', '#10B981'],
+    ['ENFORCE_MAINTAIN', 'enforce维持', '#34D399'],
     ['COLLECTING', '采集中', '#818CF8'],
     ['OFF', '已关闭', '#64748B'],
   ];
@@ -197,7 +226,7 @@ function buildCharts() {
       areaStyle: { opacity: 0.25 },
       lineStyle: { width: 1 },
       itemStyle: { color },
-      // INSUFFICIENT_DATA 并入采集中（与历史表口径一致）
+      // INSUFFICIENT_DATA 并入采集中（与历史表口径一致）；新档位在旧快照中计数为 0
       data: snaps.map((s) => (snapshotCounts(s)[key] || 0) + (key === 'COLLECTING' ? (snapshotCounts(s).INSUFFICIENT_DATA || 0) : 0)),
     })),
   };
@@ -288,6 +317,31 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- M13：采数停滞横幅（近 24h 0 写入，事件驱动型闸门停采或写路径异常） -->
+      <div v-if="stalledArms.length" class="card border-amber-500/50 bg-amber-500/10">
+        <div class="text-amber-300 font-medium text-sm">
+          ⏸ {{ stalledArms.length }} 条风控臂「采数停滞」——最长窗有历史记录但近 24h 0 条写入，
+          疑似事件驱动型闸门停采或写路径异常：
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <span v-for="a in stalledArms" :key="a.arm"
+                class="badge badge-warn font-mono" :title="a.collection_stalled?.stale_hours + 'h 无新记录'">
+            {{ a.arm }}<span class="ml-1 opacity-80">{{ a.collection_stalled?.stale_hours }}h</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- M1：enforce 臂健康告警（已在生产却出现拦太宽/高误伤，建议复核降级） -->
+      <div v-if="degradedArms.length" class="card border-orange-500/50 bg-orange-500/10">
+        <div class="text-orange-300 font-medium text-sm">
+          🔶 {{ degradedArms.length }} 条已 enforce 臂出现健康告警（拦/改太宽或臂有害率越红线），
+          评级器仅建议人工复核降级，<strong>不会自动改 mode</strong>：
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <span v-for="a in degradedArms" :key="a.arm" class="badge badge-warn font-mono">{{ a.arm }}</span>
+        </div>
+      </div>
+
       <!-- 真实成交基线 -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div class="card">
@@ -311,10 +365,12 @@ onUnmounted(() => {
       </div>
 
       <!-- 评级汇总 -->
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <div class="card"><div class="text-xs text-[var(--text-muted)]">采数缺口（门变盲）</div><div class="text-lg font-semibold mt-1 text-rose-400">{{ gapArms.length }}</div></div>
+        <div class="card"><div class="text-xs text-[var(--text-muted)]">enforce 降级复核</div><div class="text-lg font-semibold mt-1 text-orange-400">{{ degradedArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">建议复核（疑似误伤）</div><div class="text-lg font-semibold mt-1 text-amber-300">{{ reviewArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">可考虑升 enforce</div><div class="text-lg font-semibold mt-1 text-emerald-400">{{ promoteArms.length }}</div></div>
+        <div class="card"><div class="text-xs text-[var(--text-muted)]">enforce 维持</div><div class="text-lg font-semibold mt-1 text-emerald-300">{{ maintainArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">采集中</div><div class="text-lg font-semibold mt-1">{{ collectingArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">已关闭（off）</div><div class="text-lg font-semibold mt-1 text-[var(--text-muted)]">{{ offArms.length }}</div></div>
       </div>
@@ -340,8 +396,12 @@ onUnmounted(() => {
           <tbody>
             <tr v-for="a in arms" :key="a.arm"
                 class="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-hover)]"
-                :class="a.verdict === 'DATA_GAP' ? 'bg-rose-500/10' : ''">
-              <td class="py-2.5 px-3 font-mono font-semibold whitespace-nowrap">{{ a.arm }}</td>
+                :class="a.verdict === 'DATA_GAP' ? 'bg-rose-500/10'
+                         : a.verdict === 'ENFORCE_DEGRADED_REVIEW' ? 'bg-orange-500/10' : ''">
+              <td class="py-2.5 px-3 font-mono font-semibold whitespace-nowrap">
+                {{ a.arm }}
+                <span v-if="a.collection_stalled" class="text-amber-400" title="近 24h 0 条写入">⏸</span>
+              </td>
               <td class="py-2.5 px-3">
                 <span class="badge" :class="modeBadge(a.mode)">{{ a.mode }}</span>
               </td>
@@ -352,8 +412,19 @@ onUnmounted(() => {
               <td v-for="w in windowsH" :key="w" class="py-2.5 px-3 text-center align-top">
                 <template v-for="s in (a.windows || []).filter((x: any) => x.window_h === w)" :key="s.window_h">
                   <div class="font-mono">{{ s.total }} 条</div>
-                  <div class="text-[10px] text-[var(--text-muted)] font-mono">命中 {{ s.hits }}/{{ s.decisions }}（{{ hitRateTxt(s) }}）</div>
+                  <div class="text-[10px] text-[var(--text-muted)] font-mono"
+                       :title="s.decision_scope === 'gate_layer'
+         ? '仅统计真实下单闸门层（gate）的拦/放决策；观察条数含 prefilter 预筛流（仅记录拦截，不代表命中率）'
+         : ''">
+                    命中 {{ s.hits }}/{{ s.decisions }}（{{ hitRateTxt(s) }}）<span
+                      v-if="s.decision_scope === 'gate_layer'"
+                      class="text-sky-400/80">闸门层</span>
+                  </div>
                   <div class="text-[10px] text-[var(--text-muted)] font-mono">回填 {{ s.mature_outcomes }}（胜{{ s.outcome_wins }}/负{{ s.outcome_losses }}）</div>
+                  <!-- M6：短窗 outcome 成熟滞后，结论只采信最长窗 -->
+                  <div v-if="s.outcomes_pending" class="text-[10px] text-amber-400/80 font-mono" title="短窗内尚无成熟 outcome（持仓未到结算龄）">
+                    outcome 待回填
+                  </div>
                 </template>
               </td>
               <td class="py-2.5 px-3 whitespace-nowrap">
@@ -365,12 +436,47 @@ onUnmounted(() => {
                   </div>
                   <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ longestWindow(a)?.total ?? 0 }}/60</span>
                 </div>
+                <!-- M4：回填率；分母修正后的命中集有害率 -->
+                <div class="font-mono text-[10px] mt-1" :class="Number(a.backfill_rate) < 0.2 ? 'text-amber-400/90' : 'text-[var(--text-muted)]'">
+                  回填率 {{ backfillTxt(a) }}
+                </div>
+                <div v-if="a.hit_set_harmful_rate !== null && a.hit_set_harmful_rate !== undefined"
+                     class="font-mono text-[10px] mt-0.5"
+                     :class="Number(a.hit_set_harmful_rate) > 0.5 ? 'text-rose-400' : 'text-[var(--text-muted)]'"
+                     :title="a.harmful_rate_basis === 'hit_set' ? '命中且成熟样本口径（分母修正）' : '命中集不足，回退全记录口径，可能低估真实误伤'">
+                  命中集有害率 {{ hitHarmTxt(a) }}
+                  <span v-if="a.harmful_rate_basis === 'all_records'" class="text-amber-400/80">⚠口径</span>
+                </div>
               </td>
-              <td class="py-2.5 px-3 text-[var(--text-muted)] min-w-[220px]">{{ a.reason }}</td>
-              <td class="py-2.5 px-3 text-right whitespace-nowrap">
+              <td class="py-2.5 px-3 min-w-[240px] align-top">
+                <div class="text-[var(--text-muted)]">{{ a.reason }}</div>
+                <!-- M8：signal 臂人工判定通道 -->
+                <div v-if="a.signal_harmful_rate_note" class="text-[11px] text-amber-300 mt-1">👁 {{ a.signal_harmful_rate_note }}</div>
+                <!-- M2/M4/M12/M13 等侧信号告警 -->
+                <div v-for="(w2, i) in (a.warnings || [])" :key="i" class="text-[11px] text-amber-400/90 mt-1">⚠ {{ w2 }}</div>
+                <!-- M11：sizing_v2 成本上限 §8.1 六条件与臂 verdict 并列，不混入单一评级 -->
+                <details v-if="a.sv2_cost" class="mt-1.5">
+                  <summary class="text-[11px] cursor-pointer outline-none"
+                           :class="a.sv2_cost.all_pass ? 'text-emerald-400' : 'text-amber-300'">
+                    §8.1 成本闸门：{{ a.sv2_cost.gate === 'PROMOTE_CANDIDATE' ? '六条件全过' : '未全过·延长观察' }}
+                    （n={{ a.sv2_cost.n }}）
+                  </summary>
+                  <div class="mt-1 space-y-0.5">
+                    <div v-for="(c, ck) in a.sv2_cost.checks" :key="ck"
+                         class="font-mono text-[10px] flex gap-1"
+                         :title="c.detail">
+                      <span :class="c.pass ? 'text-emerald-400' : 'text-amber-400'">{{ c.pass ? '✓' : '○' }}</span>
+                      <span class="text-[var(--text-muted)]">{{ SV2_CHECK_CN[ck] || ck }}</span>
+                    </div>
+                    <div class="text-[10px] text-[var(--text-muted)] pt-0.5">{{ a.sv2_cost.gate_reason }}</div>
+                  </div>
+                </details>
+              </td>
+              <td class="py-2.5 px-3 text-right whitespace-nowrap align-top">
                 <button v-if="a.verdict === 'PROMOTE_CANDIDATE'" class="btn btn-primary text-xs"
                         @click="router.push('/config')">去升级 →</button>
-                <button v-else-if="a.verdict === 'REVIEW'" class="btn btn-ghost text-xs"
+                <button v-else-if="a.verdict === 'REVIEW' || a.verdict === 'ENFORCE_DEGRADED_REVIEW'"
+                        class="btn btn-ghost text-xs"
                         @click="router.push('/config')">去复核</button>
                 <span v-else class="text-[var(--text-muted)]">—</span>
               </td>
@@ -398,7 +504,7 @@ onUnmounted(() => {
 
       <div class="card overflow-x-auto">
         <div class="text-sm font-medium mb-2 px-1">
-          每晚评级历史明细（近 30 天，{{ history.length }} 个快照）
+          每晚评级历史明细（近 30 天，{{ history.length }} 个 cron 快照；手动重评不入趋势）
         </div>
         <table class="w-full text-xs">
           <thead>
@@ -406,8 +512,10 @@ onUnmounted(() => {
               <th class="py-2 px-3 font-medium">日期</th>
               <th class="py-2 px-3 font-medium text-right">真实成交</th>
               <th class="py-2 px-3 font-medium text-right">缺口</th>
+              <th class="py-2 px-3 font-medium text-right">enforce降级</th>
               <th class="py-2 px-3 font-medium text-right">复核</th>
               <th class="py-2 px-3 font-medium text-right">可升级</th>
+              <th class="py-2 px-3 font-medium text-right">enforce维持</th>
               <th class="py-2 px-3 font-medium text-right">采集中</th>
               <th class="py-2 px-3 font-medium text-right">关闭</th>
             </tr>
@@ -417,13 +525,15 @@ onUnmounted(() => {
               <td class="py-2 px-3 font-mono whitespace-nowrap">{{ fmtDay(s.ts) }}</td>
               <td class="py-2 px-3 font-mono text-right">{{ s.real_closes ?? 0 }}</td>
               <td class="py-2 px-3 font-mono text-right text-rose-400">{{ snapshotCounts(s).DATA_GAP || 0 }}</td>
+              <td class="py-2 px-3 font-mono text-right text-orange-400">{{ snapshotCounts(s).ENFORCE_DEGRADED_REVIEW || 0 }}</td>
               <td class="py-2 px-3 font-mono text-right text-amber-300">{{ snapshotCounts(s).REVIEW || 0 }}</td>
               <td class="py-2 px-3 font-mono text-right text-emerald-400">{{ snapshotCounts(s).PROMOTE_CANDIDATE || 0 }}</td>
+              <td class="py-2 px-3 font-mono text-right text-emerald-300">{{ snapshotCounts(s).ENFORCE_MAINTAIN || 0 }}</td>
               <td class="py-2 px-3 font-mono text-right">{{ (snapshotCounts(s).INSUFFICIENT_DATA || 0) + (snapshotCounts(s).COLLECTING || 0) }}</td>
               <td class="py-2 px-3 font-mono text-right text-[var(--text-muted)]">{{ snapshotCounts(s).OFF || 0 }}</td>
             </tr>
             <tr v-if="recentHistory.length === 0">
-              <td colspan="7" class="py-8 text-center text-[var(--text-muted)]">
+              <td colspan="9" class="py-8 text-center text-[var(--text-muted)]">
                 暂无每晚评级快照（夜间 cron 首跑后生成；手动「立即重评」不写历史）
               </td>
             </tr>

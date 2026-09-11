@@ -9,6 +9,11 @@
     />
     <div class="main-col">
       <TopBar @toggle-sidebar="portal.toggleSidebar()" />
+      <!-- 全站交易冻结横幅：任一方向新开仓被闸住即显示，5–10s 轮询刷新 -->
+      <div v-if="freezeText" class="freeze-banner" :title="freezeTitle">
+        <span class="freeze-dot" aria-hidden="true" />
+        <span>{{ freezeText }}</span>
+      </div>
       <main class="content">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
@@ -148,9 +153,41 @@ const statusTitleText = computed(() => {
 });
 let unsubFeedStatus: (() => void) | null = null;
 
+// 交易冻结全局提示：日亏硬闸 / 全局熔断 / 回撤冻结任一触发（任意方向新开仓
+// 被闸住）即在全站顶部显示红色横幅，确保不用进风控卡片也能第一时间看到。
+interface FreezeState {
+  kind: 'kill' | 'halt' | 'drawdown';
+  detail: string;
+}
+const freeze = ref<FreezeState | null>(null);
+
+function fmtDur(min: any): string {
+  const m = Number(min) || 0;
+  if (m <= 0) return '0m';
+  if (m < 60) return m.toFixed(0) + 'm';
+  return (m / 60).toFixed(1) + 'h';
+}
+const freezeText = computed(() => {
+  const f = freeze.value;
+  if (!f) return '';
+  if (f.kind === 'kill') return '交易冻结 · 日亏硬闸已触发，全部平仓停机，今日不再开仓';
+  if (f.kind === 'halt') return `交易冻结 · 全局熔断中，剩余 ${f.detail}`;
+  return `交易冻结 · 回撤 ${f.detail}`;
+});
+const freezeTitle = computed(() => {
+  const f = freeze.value;
+  if (!f) return '';
+  if (f.kind === 'drawdown') {
+    return '权益距滚动峰值回撤超过阈值，所有新开仓（多/空）已冻结；冷却结束后自动恢复';
+  }
+  if (f.kind === 'halt') return '全局熔断：暂停所有新开仓，倒计时结束自动恢复';
+  return '日亏硬闸：当日亏损触及限额，回路已全平停机';
+});
+
 // P1-7：馈送灯初始化。ws_status 是边沿事件（稳态运行时 0 条，且需 operator
 // feed 才可见），导致会话初值 unknown 恒为灰灯。改用 /api/dashboard/risk-status
-// 的 feed_status（与 FeedMonitorCard 同一数据源，匿名可访问、5s 服务端缓存）
+// 的 feed_status（与 FeedMonitorCard 同一数据源，匿名可访问、2s 服务端缓存，
+// Audit 2026-09-03 P1-3：TTL 实测为 http_cache.summary_ttl_s=2.0，非 5s）
 // 在挂载时拉取一次基线并周期兜底刷新；ws_status 边沿事件仍优先覆盖（它区分
 // WS 实时 vs REST 降级，粒度更细）。risk-status 枚举 live/stale/offline 映射到
 // 本灯 ok/degraded/down。
@@ -161,11 +198,28 @@ function mapRiskFeedStatus(raw: unknown): FeedState | null {
   if (s === 'offline') return 'down';
   return null;
 }
+function extractFreeze(data: any): FreezeState | null {
+  if (!data) return null;
+  if (data.kill_armed) return { kind: 'kill', detail: '' };
+  if (data.global_halt) {
+    return { kind: 'halt', detail: fmtDur(data.global_halt_remaining_min) };
+  }
+  const dd = data.drawdown;
+  if (dd && dd.frozen) {
+    let detail = `${Number(dd.dd_pct).toFixed(1)}%，已冻结 ${fmtDur(dd.frozen_for_min)}`;
+    if (Number(dd.cooldown_remaining_min) > 0) {
+      detail += `，${fmtDur(dd.cooldown_remaining_min)} 后自动恢复`;
+    }
+    return { kind: 'drawdown', detail };
+  }
+  return null;
+}
 async function refreshFeedFromRisk() {
   try {
     const { data } = await http.get('/api/portal/trader/api/dashboard/risk-status');
     const mapped = mapRiskFeedStatus(data?.feed_status);
     if (mapped) feedStatus.value = mapped;
+    freeze.value = extractFreeze(data);
   } catch {
     // 拉取失败保持现状（unknown 或上一次状态），不误报降级/中断。
   }
@@ -185,10 +239,11 @@ onMounted(() => {
       feedStatus.value = s;
     }
   });
-  // P1-7：挂载即拉 risk-status 基线（消除灰灯），并 30s 兜底轮询；
+  // P1-7：挂载即拉 risk-status 基线（消除灰灯），并 10s 兜底轮询（冻结态
+  // 提示的新鲜度要求高于纯馈送灯，端点有 2s 服务端缓存，10s 开销可忽略）；
   // ws_status 边沿事件仍在上方订阅，到达时优先覆盖。
   void refreshFeedFromRisk();
-  feedPollTimer = window.setInterval(() => void refreshFeedFromRisk(), 30000);
+  feedPollTimer = window.setInterval(() => void refreshFeedFromRisk(), 10000);
 });
 onBeforeUnmount(() => {
   if (tickTimer) clearInterval(tickTimer);
@@ -243,6 +298,30 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.freeze-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 22px;
+  background: rgba(220, 38, 38, 0.92);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  flex: none;
+}
+.freeze-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fff;
+  flex: none;
+  animation: freeze-pulse 1.1s infinite;
+}
+@keyframes freeze-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
 }
 .content {
   flex: 1;

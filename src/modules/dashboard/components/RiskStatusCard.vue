@@ -2,10 +2,12 @@
 /**
  * 风控状态卡片（O-4 回移植自 her-web）。
  * 数据源：/api/dashboard/risk-status（经 riskCards store 5s 轮询）。
- * 三层风控态，严重度从高到低：
+ * 四层风控态，严重度从高到低：
  *   1) 日亏硬闸 kill_armed —— 当日亏损触及限额，回路已全平停机（红）；
  *   2) 全局熔断 global_halt —— 暂停所有新开仓（红，显示剩余分钟）；
- *   3) 单币熔断 coin_circuits —— 个别币种暂停重入（琥珀，coin→剩余分钟）。
+ *   3) 回撤冻结 drawdown.frozen —— 权益距滚动峰值回撤超阈值，冻结所有
+ *      新开仓（红，显示 dd%/峰值/已冻结时长/冷却恢复剩余）；
+ *   4) 单币熔断 coin_circuits —— 个别币种暂停重入（琥珀，coin→剩余分钟）。
  * 另显示运行模式 mode 与当日盈亏/限额余量。
  */
 import { computed } from 'vue';
@@ -16,13 +18,24 @@ const rs = computed<any>(() => risk.riskStatus);
 
 type Level = 'danger' | 'warn' | 'safe' | 'unknown';
 
+// 回撤闸门实时态（/api/dashboard/risk-status 的 drawdown 字段，null=后端不可用）
+const dd = computed<any>(() => rs.value?.drawdown ?? null);
+
 const overall = computed<Level>(() => {
   const r = rs.value;
   if (!r) return 'unknown';
-  if (r.kill_armed || r.global_halt) return 'danger';
+  if (r.kill_armed || r.global_halt || dd.value?.frozen) return 'danger';
   if (r.armed_coins > 0) return 'warn';
   return 'safe';
 });
+
+// 分钟数格式化为时长：<1h 显示 m，否则 h
+function fmtDur(min: any): string {
+  const m = Number(min) || 0;
+  if (m <= 0) return '0m';
+  if (m < 60) return m.toFixed(0) + 'm';
+  return (m / 60).toFixed(1) + 'h';
+}
 
 const OVERALL_CLS: Record<Level, string> = {
   danger: 'badge-danger',
@@ -80,6 +93,31 @@ function fmtUsd(v: any): string {
       风控状态加载中…
     </div>
     <div v-else class="space-y-2.5">
+      <!-- 交易冻结总横幅：日亏硬闸/全局熔断/回撤冻结任一触发即置顶醒目展示 -->
+      <div
+        v-if="rs.kill_armed || rs.global_halt || dd?.frozen"
+        class="rounded-lg px-3 py-2.5 text-xs font-semibold badge-danger"
+        style="display:flex;align-items:center;gap:8px;line-height:1.5"
+      >
+        <span
+          aria-hidden="true"
+          style="width:9px;height:9px;border-radius:50%;background:#fff;flex:none;animation:dd-pulse 1.1s infinite"
+        />
+        <span>
+          <template v-if="rs.kill_armed">日亏硬闸已触发 · 全部平仓停机，今日不再开仓</template>
+          <template v-else-if="rs.global_halt">
+            交易冻结 · 全局熔断中，剩余 {{ fmtDur(rs.global_halt_remaining_min) }}
+          </template>
+          <template v-else-if="dd?.frozen">
+            交易冻结 · 回撤 {{ Number(dd.dd_pct).toFixed(1) }}% ≥ 阈值
+            {{ Number(dd.threshold_pct).toFixed(0) }}%（{{ Number(dd.window_days).toFixed(0) }}日峰值
+            ${{ Number(dd.peak_equity).toFixed(2) }} / 权益 ${{ Number(dd.equity).toFixed(2) }}）·
+            已冻结 {{ fmtDur(dd.frozen_for_min) }}<template v-if="Number(dd.cooldown_remaining_min) > 0"> ·
+            {{ fmtDur(dd.cooldown_remaining_min) }} 后自动恢复开仓</template>
+          </template>
+        </span>
+      </div>
+
       <!-- 运行模式 -->
       <div class="flex items-center justify-between">
         <span class="text-sm text-[var(--muted)]">运行模式</span>
@@ -114,6 +152,24 @@ function fmtUsd(v: any): string {
         <span v-else class="text-xs px-2 py-0.5 rounded-full font-semibold badge-ok">未触发</span>
       </div>
 
+      <!-- 回撤冻结闸门 -->
+      <div class="flex items-center justify-between border-t border-[var(--border)] pt-2.5">
+        <span class="text-sm text-[var(--muted)]">回撤冻结</span>
+        <span v-if="dd && dd.frozen" class="text-xs px-2 py-0.5 rounded-full font-semibold badge-danger">
+          冻结中 · {{ Number(dd.dd_pct).toFixed(1) }}% · {{ fmtDur(dd.frozen_for_min) }}
+        </span>
+        <span v-else-if="dd" class="text-xs px-2 py-0.5 rounded-full font-semibold badge-ok">
+          未冻结 · {{ Number(dd.dd_pct).toFixed(1) }}%
+        </span>
+        <span v-else class="text-xs px-2 py-0.5 rounded-full font-semibold badge-muted">未知</span>
+      </div>
+      <div v-if="dd && dd.frozen" class="text-[11px] text-[var(--muted)] text-right -mt-1.5">
+        {{ Number(dd.window_days).toFixed(0) }}日峰值 ${{ Number(dd.peak_equity).toFixed(2) }} ·
+        权益 ${{ Number(dd.equity).toFixed(2) }} ·
+        阈值 {{ Number(dd.threshold_pct).toFixed(0) }}%<template v-if="Number(dd.cooldown_remaining_min) > 0"> ·
+        冷却恢复剩余 {{ fmtDur(dd.cooldown_remaining_min) }}</template>
+      </div>
+
       <!-- 单币熔断 -->
       <div class="border-t border-[var(--border)] pt-2.5">
         <div class="flex items-center justify-between mb-1.5">
@@ -136,3 +192,10 @@ function fmtUsd(v: any): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+@keyframes dd-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+</style>
