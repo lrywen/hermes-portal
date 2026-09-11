@@ -183,8 +183,12 @@ onUnmounted(() => {
               <th class="py-2 px-3 font-medium text-right">标记价</th>
               <th class="py-2 px-3 font-medium text-right">强平价</th>
               <th class="py-2 px-3 font-medium text-right">未实现盈亏</th>
-              <th class="py-2 px-3 font-medium text-right">ROE %</th>
-              <th class="py-2 px-3 font-medium text-right">现货 %</th>
+              <th class="py-2 px-3 font-medium text-right" title="含杠杆的仓位回报率（未实现盈亏 / 占用保证金），Hyperliquid 口径，已计入开仓手续费">
+                ROE %<span class="opacity-60">ⓘ</span>
+              </th>
+              <th class="py-2 px-3 font-medium text-right" title="标的价格本身相对开仓价的涨跌幅，未乘杠杆；ROE% ≈ 价格涨跌% × 杠杆（扣费前）">
+                价格涨跌%<span class="opacity-60">ⓘ</span>
+              </th>
               <th class="py-2 px-3 font-medium text-center">DSL</th>
               <th class="py-2 px-3 font-medium text-right">操作</th>
             </tr>
