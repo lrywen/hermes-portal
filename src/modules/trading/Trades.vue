@@ -253,7 +253,7 @@ onUnmounted(() => {
         <div class="text-2xl font-semibold mt-1 text-emerald-400">{{ stats.count ? stats.winRate.toFixed(1) : '—' }}%</div>
       </div>
       <div class="card">
-        <div class="text-xs text-[var(--text-muted)]">平均盈/亏</div>
+        <div class="text-xs text-[var(--text-muted)]" title="按「仓位盈亏%」（含杠杆、已扣手续费的单笔仓位回报率）算术平均">平均盈/亏（仓位盈亏%）</div>
         <div class="text-lg font-semibold mt-1">
           <span class="text-emerald-400">{{ stats.count ? fmtNum(stats.avgWin) : '—' }}%</span>
           <span class="text-[var(--text-muted)]"> / </span>
@@ -265,7 +265,7 @@ onUnmounted(() => {
         <div class="text-2xl font-semibold mt-1" :class="pctClass(stats.netUsd || stats.net)">
           {{ stats.usdKnown ? fmtUsd(stats.netUsd) : (stats.count ? fmtNum(stats.net) + '%' : '—') }}
         </div>
-        <div class="text-xs text-[var(--text-muted)] mt-1">
+        <div class="text-xs text-[var(--text-muted)] mt-1" title="手续费百分比为含杠杆口径（吃单费率 × 开平笔数 × 杠杆），占仓位回报的百分比合计">
           {{ stats.usdKnown ? fmtNum(stats.net) + '% · ' : '' }}手续费合计 {{ fmtNum(stats.fees) }}%
         </div>
       </div>
@@ -314,9 +314,11 @@ onUnmounted(() => {
             <th class="py-2 px-3 text-right" title="标的现货本身的价格涨跌幅，未乘杠杆（已扣除手续费前）；仓位盈亏% = 现货% × 杠杆 - 手续费">
               价格涨跌%<span class="opacity-60">ⓘ</span>
             </th>
-            <th class="py-2 px-3 text-right">仓位盈亏%</th>
+            <th class="py-2 px-3 text-right" title="含杠杆的已实现仓位回报率（已扣手续费），非标的价格涨跌幅">
+              仓位盈亏%<span class="opacity-60">ⓘ</span>
+            </th>
             <th class="py-2 px-3 text-right">已实现盈亏</th>
-            <th class="py-2 px-3 text-right">手续费</th>
+            <th class="py-2 px-3 text-right" title="上行美元金额；下行百分比为含杠杆的手续费占仓位回报口径">手续费<span class="opacity-60">ⓘ</span></th>
             <th class="py-2 px-3">原因 / 备注</th>
             <th class="py-2 px-3 whitespace-nowrap">持仓时长</th>
             <th class="py-2 px-3 text-center">来源</th>

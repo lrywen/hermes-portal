@@ -216,7 +216,7 @@ onUnmounted(() => {
           <div class="text-2xl font-semibold mt-1 text-cyan-400">${{ fmt(summary?.available) }}</div>
         </div>
         <div class="card">
-          <div class="text-xs text-[var(--text-muted)]">今日盈亏</div>
+          <div class="text-xs text-[var(--text-muted)]" title="今日已实现+未实现盈亏合计；百分比相对日初账户权益（非单笔仓位回报率）">今日盈亏</div>
           <div class="text-2xl font-semibold mt-1" :class="pnlColor(summary?.daily_pnl ?? 0)">
             {{ dailyPnlPositive ? '+' : '' }}${{ fmt(summary?.daily_pnl) }}
             <span class="text-sm ml-1">({{ (summary?.daily_pnl_pct ?? 0).toFixed(2) }}%)</span>

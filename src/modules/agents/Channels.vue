@@ -103,10 +103,10 @@ const FIELD_LABELS: Record<string, string> = {
   ts: '时间', event: '事件', coin: '币种', side: '方向', score: '评分',
   verdict: '裁决', reason: '原因', detail: '详情', triggers: '触发数',
   executed: '已执行', error: '错误', msg: '消息', message: '消息',
-  px: '价格', qty: '数量', leverage: '杠杆', pnl: '盈亏', pnl_pct: '盈亏%',
+  px: '价格', qty: '数量', leverage: '杠杆', pnl: '盈亏(USD)', pnl_pct: '仓位盈亏%',
   source: '来源', mode: '模式', interval: '间隔', count: '计数',
   entry_px: '开仓价', fill_px: '成交价', fees: '手续费', fees_pct: '手续费%',
-  spot_pct: '现货占比', size: '仓位', mkt_price: '市场价', note: '备注',
+  spot_pct: '价格涨跌%', size: '仓位', mkt_price: '市场价', note: '备注',
   action: '动作', symbol: '标的', strategy: '策略', ts_ms: '时间戳',
   // (supplemental audit 2026-09-02) scan 事件补「扫描耗时」；start_ts_ms 为
   // 扫描开始时刻(epoch ms)，已用于时间列显示，详情里不重复原始数字故跳过。

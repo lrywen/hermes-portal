@@ -481,8 +481,8 @@ onUnmounted(() => {
               <th class="py-2 px-3 font-medium text-right">成交价</th>
               <th class="py-2 px-3 font-medium text-right">名义</th>
               <th class="py-2 px-3 font-medium text-right">手续费</th>
-              <th class="py-2 px-3 font-medium text-right">盈亏</th>
-              <th class="py-2 px-3 font-medium text-right">ROE%</th>
+              <th class="py-2 px-3 font-medium text-right">已实现盈亏</th>
+              <th class="py-2 px-3 font-medium text-right" title="含杠杆的已实现仓位回报率（已扣手续费），非标的价格涨跌幅">仓位盈亏%<span class="opacity-60">ⓘ</span></th>
               <th class="py-2 px-3 font-medium">原因/时长</th>
             </tr>
           </thead>
