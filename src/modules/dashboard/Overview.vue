@@ -286,7 +286,7 @@ onUnmounted(() => {
                 <th class="text-left py-2 px-3 font-medium">币种</th>
                 <th class="text-left py-2 px-3 font-medium">方向</th>
                 <th class="text-right py-2 px-3 font-medium">仓位</th>
-                <th class="text-right py-2 px-3 font-medium">盈亏</th>
+                <th class="text-right py-2 px-3 font-medium" title="含杠杆的已实现仓位回报率（已扣手续费），非标的价格涨跌幅">仓位盈亏%<span class="opacity-60">ⓘ</span></th>
                 <th class="text-left py-2 px-3 font-medium">原因</th>
                 <th class="text-left py-2 px-3 font-medium">来源</th>
               </tr>

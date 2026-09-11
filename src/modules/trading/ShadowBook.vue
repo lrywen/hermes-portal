@@ -410,8 +410,8 @@ onUnmounted(() => {
               <th class="py-2 px-3 font-medium text-right">保证金</th>
               <th class="py-2 px-3 font-medium text-right">开仓价</th>
               <th class="py-2 px-3 font-medium text-right">标记价</th>
-              <th class="py-2 px-3 font-medium text-right">现货%</th>
-              <th class="py-2 px-3 font-medium text-right">ROE%</th>
+              <th class="py-2 px-3 font-medium text-right" title="标的价格本身相对开仓价的涨跌幅，未乘杠杆">价格涨跌%<span class="opacity-60">ⓘ</span></th>
+              <th class="py-2 px-3 font-medium text-right" title="含杠杆的仓位回报率 = 价格涨跌% × 杠杆（未扣费的盯市口径）">ROE%<span class="opacity-60">ⓘ</span></th>
               <th class="py-2 px-3 font-medium text-right">浮动盈亏</th>
               <th class="py-2 px-3 font-medium">持仓时长</th>
               <th class="py-2 px-3 font-medium text-right">操作</th>
@@ -529,7 +529,7 @@ onUnmounted(() => {
               <th class="py-2 px-3 font-medium">币种</th>
               <th class="py-2 px-3 font-medium">方向</th>
               <th class="py-2 px-3 font-medium">事项</th>
-              <th class="py-2 px-3 font-medium text-right">现货%</th>
+              <th class="py-2 px-3 font-medium text-right" title="标的价格本身相对开仓价的涨跌幅，未乘杠杆">价格涨跌%<span class="opacity-60">ⓘ</span></th>
               <th class="py-2 px-3 font-medium text-right">手续费</th>
               <th class="py-2 px-3 font-medium text-right">已实现盈亏</th>
               <th class="py-2 px-3 font-medium text-right">平仓后钱包余额</th>
