@@ -67,6 +67,7 @@ const ICONS: Record<string, string> = {
   Wallet: '💼',
   History: '🕐',
   BarChart3: '📉',
+  Ghost: '👻',
   Bot: '🤖',
   Cpu: '⚙️',
   Brain: '🧠',

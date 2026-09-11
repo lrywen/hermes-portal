@@ -11,6 +11,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'overview', name: 'overview', component: () => import('@/modules/dashboard/Overview.vue'), meta: { title: '总览', perm: 'dashboard:read' } },
       { path: 'positions', name: 'positions', component: () => import('@/modules/trading/Positions.vue'), meta: { title: '持仓', perm: 'positions:read' } },
       { path: 'trades', name: 'trades', component: () => import('@/modules/trading/Trades.vue'), meta: { title: '交易历史', perm: 'trades:read' } },
+      { path: 'shadow-book', name: 'shadow-book', component: () => import('@/modules/trading/ShadowBook.vue'), meta: { title: '影子账本', perm: 'shadow:read' } },
       { path: 'analysis', name: 'analysis', component: () => import('@/modules/trading/Analysis.vue'), meta: { title: '深度分析', perm: 'analysis:read' } },
       { path: 'agents', name: 'agents', component: () => import('@/modules/agents/Agents.vue'), meta: { title: '智能体编排', perm: 'agent:control' } },
       { path: 'channels', name: 'channels', component: () => import('@/modules/agents/Channels.vue'), meta: { title: '渠道消息', perm: 'channels:read' } },

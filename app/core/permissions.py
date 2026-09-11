@@ -33,6 +33,8 @@ PERMISSION_ROLES: dict[str, list[str]] = {
     "analysis:read": ["viewer", "trader", "operator", "admin"],
     "channels:read": ["viewer", "trader", "operator", "admin"],
     "postmortems:read": ["viewer", "trader", "operator", "admin"],
+    "shadow:read": ["viewer", "trader", "operator", "admin"],
+    "shadow:manage": ["operator", "admin"],
     # 交易操作
     "trade:execute": ["trader", "operator", "admin"],
     "trade:close": ["trader", "operator", "admin"],

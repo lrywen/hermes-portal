@@ -30,6 +30,8 @@ PERMISSION_META = {
     "analysis:read": ("分析查看", "trading", "查看深度分析"),
     "channels:read": ("渠道消息查看", "agents", "查看渠道事件流"),
     "postmortems:read": ("复盘报告查看", "operations", "查看复盘报告"),
+    "shadow:read": ("影子账本查看", "trading", "查看 SHADOW 影子模式模拟账户数据"),
+    "shadow:manage": ("影子账本管理", "trading", "重置影子账本/手动模拟平仓"),
     "trade:execute": ("下单", "trading", "提交手动交易订单"),
     "trade:close": ("平仓", "trading", "平掉持仓/撤单"),
     "agent:control": ("智能体控制", "agents", "启停自主循环/触发扫描"),
