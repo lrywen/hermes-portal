@@ -80,6 +80,7 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/dashboard/positions", None, _DENY),
     ("/api/dashboard/equity-curve", None, _DENY),
     ("/api/dashboard/closed-trades", None, _DENY),
+    ("/api/dashboard/trades", None, _DENY),
     ("/api/dashboard/risk-status", "dashboard:read", _DENY),  # 风控三卡（熔断/日亏闸/馈送健康度）
     # Audit 2026-09-07 (M2): shadow risk-arm grading center. Grades contain gate
     # posture (off/shadow/enforce) and blind-gap signals -> operator-only read;
