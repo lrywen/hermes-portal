@@ -440,7 +440,9 @@ onUnmounted(() => {
       <div class="card" v-if="account?.maker_shadow_enabled">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
           <div class="text-sm font-medium">Maker 成交质量 / 逆向选择</div>
-          <span class="text-[11px] text-[var(--text-muted)]">maker edge 须稳定覆盖成交后逆向漂移，才值得小额实盘校准</span>
+          <span class="text-[11px] text-[var(--text-muted)]">
+            触及规则为乐观成交上界（非真实排队） · maker edge 须稳定覆盖成交后逆向漂移，才值得小额实盘校准
+          </span>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <div class="card !shadow-none">
