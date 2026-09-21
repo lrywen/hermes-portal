@@ -114,7 +114,7 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/agent/config", "config:read", "config:write"),
     # ---- 运维/监控（不经 BFF 暴露）----
     ("/metrics", _DENY, _DENY),
-    ("/api/postmortems", "postmortems:read", _DENY),  # trader 实际路径带 /api 前缀
+    ("/postmortems", "postmortems:read", _DENY),  # trader 实际路由无 /api 前缀（server.py）
     ("/api/health", None, _DENY),
 ]
 

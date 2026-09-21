@@ -3,8 +3,8 @@ BFF 代理链 RBAC 矩阵测试。
 
 覆盖本轮两处规则修正与既有安全边界：
 - GET /api/dashboard/risk-status 需要 dashboard:read（四角色全有，匿名 401）；
-- GET /api/postmortems* 被 postmortems:read 规则命中（旧表白名单误带 /trader/
-  前缀导致 startswith 永不命中——已修正）；
+- GET /postmortems* 被 postmortems:read 规则命中（旧规则误写 /api/postmortems，
+  而 trader 真实路由无 /api 前缀导致 startswith 永不命中——已修正）；
 - POST /api/hl/flatten-all 未登记为白名单写操作 → fail-closed 403（含 admin；
   一键全平仅能经运维台 terminal 路径）；
 - operator/terminal 写仅 admin（operator 角色无 operator:terminal）；
@@ -23,7 +23,7 @@ ROLES = ("viewer", "trader", "operator", "admin")
 MATRIX = [
     ("GET", "/api/dashboard/risk-status",
      {"viewer": 200, "trader": 200, "operator": 200, "admin": 200}),
-    ("GET", "/api/postmortems/list",
+    ("GET", "/postmortems/list",
      {"viewer": 200, "trader": 200, "operator": 200, "admin": 200}),
     ("GET", "/api/hl/all-mids",
      {"viewer": 200, "trader": 200, "operator": 200, "admin": 200}),
@@ -135,9 +135,9 @@ def test_required_permission_rules_unit():
     # risk-status 显式读规则
     assert _required_permission("/api/dashboard/risk-status", "GET") == "dashboard:read"
     assert _required_permission("/api/dashboard/risk-status", "POST") is False
-    # postmortems 前缀规则正确命中（旧 bug：前缀误带 /trader/ 永不命中）
-    assert _required_permission("/api/postmortems/list", "GET") == "postmortems:read"
-    assert _required_permission("/api/postmortems/list", "POST") is False
+    # postmortems 前缀规则正确命中（bug：规则误写 /api/postmortems，而真实路由无 /api）
+    assert _required_permission("/postmortems/list", "GET") == "postmortems:read"
+    assert _required_permission("/postmortems/list", "POST") is False
     # operator/terminal 写仅 operator:terminal（只授给 admin）
     assert _required_permission("/api/dashboard/operator/terminal", "POST") == "operator:terminal"
     # flatten-all 未登记写 → fail-closed
