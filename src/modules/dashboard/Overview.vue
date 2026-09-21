@@ -59,8 +59,8 @@ async function fetchAll() {
     summary.value = s.data;
     closedTrades.value = Array.isArray(t.data) ? t.data : (t.data?.trades || []);
 
-    // 权益曲线（时间轴）
-    const curve: any[] = eq.data?.curve || eq.data?.equity_curve || (Array.isArray(eq.data) ? eq.data : []);
+    // 权益曲线（时间轴）：后端 /api/dashboard/equity-curve 返回裸数组（点含 ts/equity）。
+    const curve: any[] = Array.isArray(eq.data) ? eq.data : [];
     equityOption.value = {
       backgroundColor: 'transparent',
       grid: { left: 60, right: 20, top: 20, bottom: 30 },

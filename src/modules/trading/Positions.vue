@@ -24,7 +24,8 @@ let timer: number | null = null;
 let sseUnsub: (() => void) | null = null;
 let pendingRefresh: number | null = null;
 
-const canTrade = computed(() => auth.hasPermission('trade:execute'));
+// 平仓走 /api/hl/close-position，BFF 权威权限码为 trade:close（与开仓 trade:execute 区分）。
+const canClose = computed(() => auth.hasPermission('trade:close'));
 
 // SSE 事件驱动的刷新调度：将连续 position_update 事件合并为单次 load()，
 // 避免 burst 事件触发多次 HTTP 请求。500ms 内的重复事件只触发一次拉取。
@@ -69,7 +70,7 @@ async function load() {
 }
 
 async function closePosition(coin: string) {
-  if (!canTrade.value) return;
+  if (!canClose.value) return;
   if (!confirm(`确定平仓 ${coin}？`)) return;
   closing.value = coin;
   try {
@@ -239,7 +240,7 @@ onUnmounted(() => {
               <td class="py-2.5 px-3 text-right">
                 <button
                   class="btn btn-danger text-xs"
-                  :disabled="!canTrade || closing === p.coin"
+                  :disabled="!canClose || closing === p.coin"
                   @click="closePosition(p.coin)"
                 >
                   {{ closing === p.coin ? '平仓中...' : '平仓' }}
