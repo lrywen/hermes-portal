@@ -2,9 +2,11 @@
 /**
  * 影子账本（SHADOW 模拟盘）
  * - 数据来源：hermes-trader /api/dashboard/shadow/*（经 BFF 代理）
- * - 展示：模拟账户资金（权益/钱包/可用/保证金/浮动盈亏）、持仓、开平仓流水、
- *   权益曲线、盈亏统计、资金变动明细
- * - 写操作（shadow:manage）：重置账本（可设起始资金）、手动模拟平仓
+ * - 双账户并列：同一决策驱动 taker（决策时按 mid 立即成交）与 maker_shadow
+ *   （内移挂 post-only，按 1m K线判成交/撤销）。展示两账户资金、持仓、挂单、
+ *   开平仓流水、权益曲线对照、盈亏统计，以及 maker 逆向选择（adverse selection）
+ *   指标——这是判断 maker edge 能否覆盖被逆向选择成本的关键证据。
+ * - 写操作（shadow:manage）：重置账本（可设起始资金）、手动模拟平仓（仅 taker）
  * - 刷新：10s 轮询 + SSE 事件（shadow_exit / position_update）防抖触发
  */
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
@@ -31,10 +33,14 @@ const account = ref<any>(null);
 const stats = ref<any>(null);
 const fills = ref<any[]>([]);
 const curve = ref<any[]>([]);
+// maker_shadow 双账户数据
+const makerFills = ref<any[]>([]);
+const makerCurve = ref<any[]>([]);
 const equityOption = shallowRef<any>({});
 
 const typeFilter = ref<'all' | 'open' | 'close'>('all');
 const sideFilter = ref<'all' | 'long' | 'short'>('all');
+const fillAccount = ref<'taker' | 'maker'>('taker');
 const filterCoin = ref('');
 const resetBalance = ref<string>('');
 const closing = ref<string | null>(null);
@@ -70,7 +76,9 @@ async function loadAll() {
     account.value = a.data;
     stats.value = s.data;
     fills.value = Array.isArray(t.data?.trades) ? t.data.trades : [];
+    makerFills.value = Array.isArray(t.data?.maker_trades) ? t.data.maker_trades : [];
     curve.value = Array.isArray(e.data?.points) ? e.data.points : [];
+    makerCurve.value = Array.isArray(e.data?.maker_points) ? e.data.maker_points : [];
     if (!resetBalance.value && a.data?.starting_balance) {
       resetBalance.value = String(a.data.starting_balance);
     }
@@ -84,10 +92,12 @@ async function loadAll() {
 
 function buildChart() {
   const start = Number(stats.value?.starting_balance ?? account.value?.starting_balance ?? 0);
-  const seriesData = curve.value.map((d: any) => {
+  const toPairs = (arr: any[]) => arr.map((d: any) => {
     const ts = typeof d.ts === 'number' ? (d.ts < 1e12 ? d.ts * 1000 : d.ts) : Date.now();
     return [ts, Number(Number(d.equity ?? 0).toFixed(2))] as [number, number];
   });
+  const takerData = toPairs(curve.value);
+  const makerData = toPairs(makerCurve.value);
   equityOption.value = {
     backgroundColor: 'transparent',
     grid: { left: 64, right: 24, top: 24, bottom: 32 },
@@ -97,10 +107,16 @@ function buildChart() {
       borderColor: '#232A3B',
       textStyle: { color: '#E5E7EB', fontSize: 11 },
       formatter: (params: any) => {
-        const p = params[0];
-        if (!p) return '';
-        const time = new Date(p.data[0]).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-        return `${time}<br/>模拟权益: <strong>$${Number(p.data[1]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>`;
+        if (!params || !params.length) return '';
+        const time = new Date(params[0].data[0]).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const line = (label: string, p: any) =>
+          `${label}: <strong>$${Number(p.data[1]).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>`;
+        const takerP = params.find((p: any) => p.seriesName === 'taker');
+        const makerP = params.find((p: any) => p.seriesName === 'maker');
+        let html = time;
+        if (takerP) html += `<br/>${line('Taker', takerP)}`;
+        if (makerP) html += `<br/>${line('Maker', makerP)}`;
+        return html;
       },
     },
     xAxis: {
@@ -115,10 +131,16 @@ function buildChart() {
       splitLine: { lineStyle: { color: '#1E2433' } },
       axisLabel: { color: '#6B7280', fontSize: 10, formatter: (v: number) => `$${v.toFixed(0)}` },
     },
+    legend: {
+      data: ['taker', 'maker'],
+      textStyle: { color: '#9CA3AF', fontSize: 10 },
+      top: 0, right: 8,
+    },
     series: [
       {
+        name: 'taker',
         type: 'line',
-        data: seriesData,
+        data: takerData,
         smooth: true,
         showSymbol: false,
         lineStyle: { color: '#8B5CF6', width: 2 },
@@ -139,15 +161,29 @@ function buildChart() {
           data: [{ yAxis: start }],
         } : undefined,
       },
+      {
+        name: 'maker',
+        type: 'line',
+        data: makerData,
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#38BDF8', width: 2 },
+        connectNulls: true,
+      },
     ],
   };
 }
 
 // ---------------------------------------------------------------- derived
 const positions = computed<any[]>(() => account.value?.positions || []);
+const makerPositions = computed<any[]>(() => account.value?.maker_positions || []);
+const makerResting = computed<any[]>(() => account.value?.maker_resting_orders || []);
+const makerStats = computed<any>(() => stats.value?.maker_shadow || null);
+const adverseSelection = computed<any>(() => makerStats.value?.adverse_selection || null);
 
 const filteredFills = computed(() => {
-  let list = fills.value;
+  const source = fillAccount.value === 'maker' ? makerFills.value : fills.value;
+  let list = source;
   if (typeFilter.value !== 'all') list = list.filter((f) => f.type === typeFilter.value);
   if (sideFilter.value !== 'all') list = list.filter((f) => f.side === sideFilter.value);
   if (filterCoin.value) {
@@ -390,11 +426,128 @@ onUnmounted(() => {
 
       <!-- 权益曲线 -->
       <div class="card">
-        <div class="text-sm font-medium mb-2">模拟权益曲线</div>
-        <div v-if="curve.length < 2" class="text-center py-10 text-[var(--text-muted)] text-sm">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div class="text-sm font-medium">权益曲线对照（Taker vs Maker）</div>
+          <span class="text-[11px] text-[var(--text-muted)]">紫=Taker（mid 立即成交） · 蓝=Maker（挂单成交）</span>
+        </div>
+        <div v-if="curve.length + makerCurve.length < 2" class="text-center py-10 text-[var(--text-muted)] text-sm">
           暂无曲线数据（开仓/平仓后生成）
         </div>
         <v-chart v-else :option="equityOption" style="height: 300px" autoresize />
+      </div>
+
+      <!-- Maker 逆向选择证据（决定是否值得注资实盘） -->
+      <div class="card" v-if="account?.maker_shadow_enabled">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div class="text-sm font-medium">Maker 成交质量 / 逆向选择</div>
+          <span class="text-[11px] text-[var(--text-muted)]">maker edge 须稳定覆盖成交后逆向漂移，才值得小额实盘校准</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div class="card !shadow-none">
+            <div class="text-xs text-[var(--text-muted)]">成交率</div>
+            <div class="text-lg font-semibold mt-1 text-sky-400">
+              {{ adverseSelection ? fmtNum(adverseSelection.fill_rate_pct, 1) : '—' }}%
+            </div>
+            <div class="text-[11px] text-[var(--text-muted)]">
+              成 {{ adverseSelection?.fills ?? 0 }} / 撤 {{ adverseSelection?.cancels ?? 0 }}
+            </div>
+          </div>
+          <div class="card !shadow-none">
+            <div class="text-xs text-[var(--text-muted)]">平均 Maker Edge</div>
+            <div class="text-lg font-semibold mt-1 text-emerald-400">
+              {{ adverseSelection?.avg_maker_edge_bps != null ? fmtNum(adverseSelection.avg_maker_edge_bps, 2) : '—' }}
+            </div>
+            <div class="text-[11px] text-[var(--text-muted)]">bps，挂单价相对 mid 的改善</div>
+          </div>
+          <div class="card !shadow-none">
+            <div class="text-xs text-[var(--text-muted)]">成交后逆向漂移</div>
+            <div class="text-lg font-semibold mt-1"
+              :class="pnlColor(-Number(adverseSelection?.avg_post_fill_drift_bps ?? 0))">
+              {{ adverseSelection?.avg_post_fill_drift_bps != null ? fmtNum(adverseSelection.avg_post_fill_drift_bps, 2) : '—' }}
+            </div>
+            <div class="text-[11px] text-[var(--text-muted)]">bps，正值=成交后向不利方向走</div>
+          </div>
+          <div class="card !shadow-none">
+            <div class="text-xs text-[var(--text-muted)]">平均挂单时长</div>
+            <div class="text-lg font-semibold mt-1">
+              {{ adverseSelection?.avg_resting_bars != null ? fmtNum(adverseSelection.avg_resting_bars, 1) : '—' }}
+            </div>
+            <div class="text-[11px] text-[var(--text-muted)]">根 1m K线</div>
+          </div>
+          <div class="card !shadow-none">
+            <div class="text-xs text-[var(--text-muted)]">Maker 总收益</div>
+            <div class="text-lg font-semibold mt-1" :class="pnlColor(makerStats?.total_return_pct)">
+              {{ fmtPct(makerStats?.total_return_pct) }}
+            </div>
+            <div class="text-[11px] text-[var(--text-muted)]">权益 {{ fmtUsd(makerStats?.equity_usd, 0) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 当前 maker 持仓 + 挂单 -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" v-if="account?.maker_shadow_enabled">
+        <div class="card overflow-x-auto">
+          <div class="text-sm font-medium mb-2 px-1">Maker 当前持仓（{{ makerPositions.length }}）</div>
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                <th class="py-2 px-2 font-medium">币种</th>
+                <th class="py-2 px-2 font-medium">方向</th>
+                <th class="py-2 px-2 font-medium text-right">名义</th>
+                <th class="py-2 px-2 font-medium text-right">成交价</th>
+                <th class="py-2 px-2 font-medium text-right">ROE%</th>
+                <th class="py-2 px-2 font-medium text-right">浮动盈亏</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in makerPositions" :key="p.id" class="border-b border-[var(--border)] last:border-0">
+                <td class="py-2 px-2 font-mono font-semibold">{{ p.coin }}</td>
+                <td class="py-2 px-2">
+                  <span class="badge" :class="p.side === 'long' ? 'badge-ok' : 'badge-danger'">{{ p.side === 'long' ? '多' : '空' }}</span>
+                </td>
+                <td class="py-2 px-2 font-mono text-right">{{ fmtUsd(p.size_usd, 0) }}</td>
+                <td class="py-2 px-2 font-mono text-right">{{ fmtNum(p.entry_px, 6) }}</td>
+                <td class="py-2 px-2 font-mono text-right" :class="pnlColor(p.unrealized_roe_pct)">{{ fmtPct(p.unrealized_roe_pct) }}</td>
+                <td class="py-2 px-2 font-mono text-right font-medium" :class="pnlColor(p.unrealized_pnl_usd)">
+                  {{ Number(p.unrealized_pnl_usd) >= 0 ? '+' : '' }}{{ fmtUsd(p.unrealized_pnl_usd) }}
+                </td>
+              </tr>
+              <tr v-if="makerPositions.length === 0">
+                <td colspan="6" class="py-6 text-center text-[var(--text-muted)]">Maker 暂无持仓</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card overflow-x-auto">
+          <div class="text-sm font-medium mb-2 px-1">Maker 挂单中（{{ makerResting.length }}）</div>
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                <th class="py-2 px-2 font-medium">币种</th>
+                <th class="py-2 px-2 font-medium">方向</th>
+                <th class="py-2 px-2 font-medium text-right">名义</th>
+                <th class="py-2 px-2 font-medium text-right">挂单价</th>
+                <th class="py-2 px-2 font-medium text-right">挂单时 mid</th>
+                <th class="py-2 px-2 font-medium text-right">已挂时长</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="o in makerResting" :key="o.id" class="border-b border-[var(--border)] last:border-0">
+                <td class="py-2 px-2 font-mono font-semibold">{{ o.coin }}</td>
+                <td class="py-2 px-2">
+                  <span class="badge" :class="o.side === 'long' ? 'badge-ok' : 'badge-danger'">{{ o.side === 'long' ? '买' : '卖' }}</span>
+                </td>
+                <td class="py-2 px-2 font-mono text-right">{{ fmtUsd(o.size_usd, 0) }}</td>
+                <td class="py-2 px-2 font-mono text-right text-sky-400">{{ fmtNum(o.limit_px, 6) }}</td>
+                <td class="py-2 px-2 font-mono text-right text-[var(--text-muted)]">{{ fmtNum(o.post_mid_px, 6) }}</td>
+                <td class="py-2 px-2 text-[var(--text-muted)] text-right">{{ holdText(o.posted_at) }}</td>
+              </tr>
+              <tr v-if="makerResting.length === 0">
+                <td colspan="6" class="py-6 text-center text-[var(--text-muted)]">Maker 暂无挂单</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 当前模拟持仓 -->
@@ -458,6 +611,14 @@ onUnmounted(() => {
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2 px-1">
           <div class="text-sm font-medium">开平仓流水</div>
           <div class="flex gap-2 items-center flex-wrap text-xs">
+            <div class="flex rounded-full border border-[var(--border)] overflow-hidden">
+              <button class="px-3 py-1 transition-colors"
+                :class="fillAccount === 'taker' ? 'bg-violet-500/15 text-violet-300' : 'text-[var(--text-muted)] hover:bg-[var(--surface-hover)]'"
+                @click="fillAccount = 'taker'">Taker</button>
+              <button class="px-3 py-1 transition-colors border-l border-[var(--border)]"
+                :class="fillAccount === 'maker' ? 'bg-sky-500/15 text-sky-300' : 'text-[var(--text-muted)] hover:bg-[var(--surface-hover)]'"
+                @click="fillAccount = 'maker'">Maker</button>
+            </div>
             <input class="input !py-1" v-model="filterCoin" placeholder="筛选币种..." style="width: 110px" />
             <button v-for="s in (['all','open','close'] as const)" :key="'t-'+s"
               class="px-3 py-1 rounded-full border transition-colors"
@@ -509,6 +670,11 @@ onUnmounted(() => {
               </td>
               <td class="py-2 px-3 text-[var(--text-muted)] whitespace-nowrap">
                 <template v-if="f.type === 'close'">{{ reasonText(f.reason) }} · {{ holdMinText(f.hold_minutes) }}</template>
+                <template v-else-if="f.type === 'cancel'">挂单撤销（TTL 到期）</template>
+                <template v-else-if="fillAccount === 'maker'">
+                  <span :class="pnlColor(f.maker_edge_bps)" class="text-emerald-400">edge {{ fmtNum(f.maker_edge_bps, 1) }}</span>
+                  · <span :class="pnlColor(-Number(f.post_fill_mid_drift_bps ?? 0))">drift {{ fmtNum(f.post_fill_mid_drift_bps, 1) }}</span>
+                </template>
                 <template v-else>—</template>
               </td>
             </tr>
