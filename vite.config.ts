@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite';
+/// <reference types="vitest" />
+import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -12,6 +13,12 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
+  },
+  // 组件测试默认在 happy-dom 下运行；纯工具单测（*.spec.ts）不依赖 DOM。
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.spec.ts', 'src/**/*.spec.tsx'],
   },
   server: {
     host: '0.0.0.0',
