@@ -117,6 +117,8 @@ async function fetchAll() {
       ],
     };
   } catch (e: any) {
+    // 刷新失败保留上次数据继续渲染（顶部横幅提示），
+    // 仅首次加载就失败（无 summary）时才整屏报错
     error.value = e?.response?.data?.detail || e?.message || '加载仪表盘数据失败';
   } finally {
     loading.value = false;
@@ -199,12 +201,17 @@ onUnmounted(() => {
       <div v-for="i in 4" :key="i" class="card h-24 animate-pulse bg-[var(--surface-hover)]"></div>
     </div>
 
-    <div v-else-if="error" class="card border-rose-500/40 bg-rose-500/10 text-rose-300">
+    <div v-else-if="error && !summary" class="card border-rose-500/40 bg-rose-500/10 text-rose-300">
       ⚠️ {{ error }}
       <button class="btn ml-3" @click="fetchAll">重试</button>
     </div>
 
     <template v-else>
+      <!-- 刷新失败：保留上次数据，横幅提示 -->
+      <div v-if="error" class="card border-amber-500/40 bg-amber-500/10 text-amber-300 text-sm py-2">
+        ⚠️ 刷新失败（{{ error }}），展示最近一次成功数据
+        <button class="btn ml-3" @click="fetchAll">重试</button>
+      </div>
       <!-- KPI 卡片 -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card">

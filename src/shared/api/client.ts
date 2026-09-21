@@ -8,6 +8,10 @@ const http: AxiosInstance = axios.create({
   timeout: 30000,
 });
 
+// 读路径快速失败：页面/轮询 GET 正常 <2s，给 12s 上限——上游劣化时及时
+// 触发各视图"保留上次数据"的降级，而不是挂满 30s 冻结 UI。写操作保留 30s。
+const GET_TIMEOUT_MS = 12000;
+
 // 认证类端点本身的 401 不得触发自动刷新/登出跳转，否则 refresh 失败会递归调用自身
 const AUTH_URLS = ['/api/portal/auth/login', '/api/portal/auth/refresh', '/api/portal/auth/logout'];
 function isAuthUrl(url?: string): boolean {
@@ -18,6 +22,9 @@ http.interceptors.request.use((config) => {
   const auth = useAuthStore();
   if (auth.accessToken) {
     config.headers.Authorization = `Bearer ${auth.accessToken}`;
+  }
+  if ((config.method ?? 'get').toLowerCase() === 'get') {
+    config.timeout = GET_TIMEOUT_MS;
   }
   return config;
 });

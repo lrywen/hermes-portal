@@ -17,6 +17,7 @@ const toast = useToast();
 
 const loading = ref(true);
 const error = ref('');
+const stale = ref(false);
 const positions = ref<any[]>([]);
 const closing = ref<string | null>(null);
 let timer: number | null = null;
@@ -38,7 +39,10 @@ function scheduleRefresh() {
 async function load() {
   try {
     error.value = '';
-    const { data } = await http.get('/api/portal/trader/api/dashboard/positions');
+    const res = await http.get('/api/portal/trader/api/dashboard/positions');
+    // 服务端 stale-if-error 兜底生效时携带 X-Positions-Stale，标记数据为缓存快照
+    stale.value = res.headers?.['x-positions-stale'] === '1';
+    const data = res.data;
     const incoming: any[] = Array.isArray(data) ? data : (data?.positions || []);
     // 按 coin 做浅 diff：未变化的行保留原对象引用，避免 Vue 整表重渲染
     const prev = new Map(positions.value.map((p) => [p.coin, p]));
@@ -55,7 +59,10 @@ async function load() {
       return changed ? { ...old, ...np } : old;
     });
   } catch (e: any) {
+    // 刷新失败保留上次数据继续渲染（表格上方横幅提示），
+    // 仅首次加载就失败（无任何数据）时才整屏报错
     error.value = e?.response?.data?.detail || '加载持仓失败';
+    if (positions.value.length) stale.value = true;
   } finally {
     loading.value = false;
   }
@@ -145,9 +152,13 @@ onUnmounted(() => {
     </header>
 
     <div v-if="loading" class="card text-center py-10 text-[var(--text-muted)]">加载中...</div>
-    <div v-else-if="error" class="card text-rose-300">⚠️ {{ error }}</div>
+    <div v-else-if="error && positions.length === 0" class="card text-rose-300">⚠️ {{ error }}</div>
 
     <template v-else>
+      <!-- 刷新失败 / 服务端缓存快照：保留上次数据，横幅提示 -->
+      <div v-if="error || stale" class="card border-amber-500/40 bg-amber-500/10 text-amber-300 text-sm py-2">
+        ⚠️ {{ error ? `刷新失败（${error}），展示最近一次成功数据` : '上游连接异常，当前为服务端缓存快照' }}
+      </div>
       <!-- 汇总卡片 -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card">

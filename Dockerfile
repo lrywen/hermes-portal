@@ -22,6 +22,7 @@ RUN --mount=type=cache,target=/root/.npm \
 # 拷贝源码并构建（输出到 /web/dist）
 COPY tsconfig*.json vite.config.ts postcss.config.js tailwind.config.js index.html ./
 COPY src ./src
+COPY public ./public
 RUN npm run build
 
 
