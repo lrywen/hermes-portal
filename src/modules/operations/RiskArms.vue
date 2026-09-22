@@ -39,6 +39,13 @@ const report = ref<any>(null);
 const history = ref<any[]>([]);
 // 历史回测证据（离线 K 线反事实回放聚合，/backfill-summary）
 const backfill = ref<any>(null);
+// 辩论影子 A/B（单 LLM vs bull/bear 辩论对照，/debate-ab）
+const debateAb = ref<any>(null);
+// 决策复盘（平仓后异步生成的定性复盘，/reflections）
+const reflections = ref<any[]>([]);
+// 两个观察口默认折叠（非主评级内容，按需展开）
+const showDebateAb = ref(false);
+const showReflections = ref(false);
 
 // M5 趋势图 option（shallowRef：ECharts 大对象不走深响应）
 const verdictOption = shallowRef<any>({});
@@ -64,7 +71,7 @@ async function loadAll(showLoading = true) {
   try {
     error.value = '';
     if (showLoading) loading.value = true;
-    const [g, h, b, rg, rs] = await Promise.all([
+    const [g, h, b, rg, rs, dab, rf] = await Promise.all([
       http.get(`${API}/grades`, { params: { windows: WINDOWS } }),
       // M9：趋势只看夜间 cron 快照，手动重评/手工追加（source=manual）不污染趋势
       http.get(`${API}/grade-history`, { params: { days: 30, limit: 400, source: 'cron' } }),
@@ -73,12 +80,17 @@ async function loadAll(showLoading = true) {
       // 长周期信号再生回放报告 + 手动回放运行状态（失败同样不拖垮主面板）
       http.get(`${API}/regen-report`).catch(() => null),
       http.get(`${API}/regen-status`).catch(() => null),
+      // 辩论影子 A/B + 决策复盘（观察口，失败不拖垮主面板）
+      http.get(`${API}/debate-ab`, { params: { days: 30 } }).catch(() => null),
+      http.get(`${API}/reflections`, { params: { limit: 20 } }).catch(() => null),
     ]);
     report.value = g.data;
     history.value = Array.isArray(h.data?.snapshots) ? h.data.snapshots : [];
     backfill.value = b?.data ?? null;
     regen.value = rg?.data ?? null;
     regenStatus.value = rs?.data ?? null;
+    debateAb.value = dab?.data ?? null;
+    reflections.value = Array.isArray(rf?.data?.reflections) ? rf.data.reflections : [];
     // 页面打开时若有在跑的回放（其他入口触发），接管轮询直到完成
     if (regenStatus.value?.running) startRegenPoll();
     buildCharts();
@@ -203,6 +215,27 @@ function winRateTxt(wr: any) {
 function fmtDay(ts: any) {
   const t = typeof ts === 'number' ? (ts < 1e12 ? ts * 1000 : ts) : Date.now();
   return new Date(t).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+}
+// ISO 时间戳 → 月-日 时:分
+function fmtTs(ts: any): string {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '—';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// {LONG:3,PASS:1} → "LONG 3 · PASS 1"
+function verdictDistTxt(dist: any): string {
+  const entries = Object.entries(dist || {});
+  if (!entries.length) return '—';
+  return entries.map(([k, v]) => `${k} ${v}`).join(' · ');
+}
+// single/debate 子对象 → "verdict conf"
+function verdictCell(v: any): string {
+  if (!v || !v.verdict) return '—';
+  const conf = v.confidence === null || v.confidence === undefined
+    ? '' : ` ${Number(v.confidence).toFixed(2)}`;
+  return `${v.verdict}${conf}`;
 }
 function snapshotCounts(snap: any) {
   const c: Record<string, number> = {};
@@ -615,6 +648,81 @@ onUnmounted(() => {
             <span v-else class="badge badge-ok">有真钱对照</span>
             <span class="text-xs text-[var(--text-muted)]">{{ baseline.note || '评级可对照真实成交表现' }}</span>
           </div>
+        </div>
+      </div>
+
+      <!-- 辩论影子 A/B（观察口，默认折叠） -->
+      <div class="card">
+        <button class="w-full flex items-center justify-between text-sm font-medium px-1"
+                @click="showDebateAb = !showDebateAb">
+          <span>辩论影子 A/B · bull/bear 辩论 vs 单 LLM 对照</span>
+          <span class="text-xs text-[var(--text-muted)]">{{ showDebateAb ? '收起 ▲' : '展开 ▼' }}</span>
+        </button>
+        <div v-if="showDebateAb" class="mt-3">
+          <div v-if="!debateAb || debateAb.sample === 0"
+               class="text-xs text-[var(--text-muted)] px-1">近 30 天暂无 A/B 对照样本。</div>
+          <template v-else>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+              <div><div class="text-xs text-[var(--text-muted)]">对照样本</div>
+                <div class="text-lg font-semibold font-mono">{{ debateAb.sample }}</div></div>
+              <div><div class="text-xs text-[var(--text-muted)]">verdict 一致率</div>
+                <div class="text-lg font-semibold font-mono">{{ pctTxt(debateAb.agreement_rate) }}</div></div>
+              <div class="col-span-2 md:col-span-1">
+                <div class="text-xs text-[var(--text-muted)]">单 LLM / 辩论 verdict 分布</div>
+                <div class="text-xs mt-1 font-mono leading-5">
+                  {{ verdictDistTxt(debateAb.single_verdicts) }}<br>
+                  {{ verdictDistTxt(debateAb.debate_verdicts) }}
+                </div>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                    <th class="py-2 px-2 font-medium">时间</th>
+                    <th class="py-2 px-2 font-medium">币种</th>
+                    <th class="py-2 px-2 font-medium text-center">单 LLM</th>
+                    <th class="py-2 px-2 font-medium text-center">辩论</th>
+                    <th class="py-2 px-2 font-medium text-center">一致</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(r, i) in debateAb.rows.slice().reverse().slice(0, 50)" :key="i"
+                      class="border-b border-[var(--border)]">
+                    <td class="py-1.5 px-2 whitespace-nowrap text-[var(--text-muted)]">{{ fmtTs(r.ts) }}</td>
+                    <td class="py-1.5 px-2 font-mono">{{ r.coin }}</td>
+                    <td class="py-1.5 px-2 text-center">{{ verdictCell(r.single) }}</td>
+                    <td class="py-1.5 px-2 text-center">{{ verdictCell(r.debate) }}</td>
+                    <td class="py-1.5 px-2 text-center">{{ r.agree ? '✓' : '·' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="text-[11px] text-[var(--text-muted)] mt-2 px-1">
+              辩论结论仅作对照，不参与实际下单；一致率/分歧模式用于判断是否值得把辩论从影子提升为生产路径。</p>
+          </template>
+        </div>
+      </div>
+
+      <!-- 决策复盘（观察口，默认折叠） -->
+      <div class="card">
+        <button class="w-full flex items-center justify-between text-sm font-medium px-1"
+                @click="showReflections = !showReflections">
+          <span>决策复盘 · 平仓后 AI 定性复盘（最近 {{ reflections.length }}）</span>
+          <span class="text-xs text-[var(--text-muted)]">{{ showReflections ? '收起 ▲' : '展开 ▼' }}</span>
+        </button>
+        <div v-if="showReflections" class="mt-3 space-y-2">
+          <div v-if="reflections.length === 0"
+               class="text-xs text-[var(--text-muted)] px-1">暂无复盘记录（平仓后异步生成，含入场信号快照的仓位才有）。</div>
+          <div v-for="(r, i) in reflections.slice().reverse()" :key="i"
+               class="border border-[var(--border)] rounded-lg p-2.5">
+            <div class="text-xs text-[var(--text-muted)] mb-1">
+              <span class="font-mono">{{ r.coin }}</span> · {{ r.side }}
+            </div>
+            <div class="text-xs leading-5">{{ r.text }}</div>
+          </div>
+          <p class="text-[11px] text-[var(--text-muted)] px-1">
+            复盘仅用于审阅决策质量，并已自动注入下次研究提示；不改变仓位、闸门或配置。</p>
         </div>
       </div>
 

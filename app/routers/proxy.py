@@ -209,8 +209,19 @@ async def _proxy_request(
                         )
                         async for chunk in upstream.aiter_raw():
                             yield chunk
-            except Exception:
-                logger.exception("[proxy] stream error %s", upstream_path)
+            except Exception as exc:
+                # SSE 长连接常因上游重启/超时被截断（前端会自动重连），属正常
+                # 断连；降级为单条 warning，避免每次刷完整 traceback 淹没日志。
+                known_disconnect = isinstance(
+                    exc, (httpx.RemoteProtocolError, httpx.ReadError)
+                )
+                if known_disconnect:
+                    logger.warning(
+                        "[proxy] stream disconnected %s err=%s elapsed=%.3fs",
+                        upstream_path, exc, time.perf_counter() - started,
+                    )
+                else:
+                    logger.exception("[proxy] stream error %s", upstream_path)
                 raise
             finally:
                 logger.info(

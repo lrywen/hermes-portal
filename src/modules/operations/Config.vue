@@ -122,6 +122,91 @@ const PARAM_META: Record<string, ParamMeta> = {
   // DSL 退出
   dsl_exit: { label: 'DSL 退出策略', hint: 'DSL 仓位的退出规则组（JSON 对象）' },
 
+  // 自动平仓 / 熔断
+  auto_flatten_on_global_halt: { label: '全局熔断自动平仓', hint: '触发全局停机时是否自动平掉所有持仓' },
+  auto_flatten_on_coin_circuit: { label: '币种熔断自动平仓', hint: '单个币种触发熔断时是否自动平掉该币种持仓' },
+  roe_halt_enabled: { label: 'ROE 停机开关', hint: '单笔 ROE 亏损达到阈值时是否强制平仓' },
+  roe_halt_threshold_pct: { label: 'ROE 停机阈值', unit: '%', hint: '单笔 ROE 亏损超过此值则强制平仓（负数）' },
+  max_signal_price_deviation_pct: { label: '信号价最大偏差', unit: '%', hint: 'AI 信号价与实时中间价偏差超过此值则拦截（0=关闭）' },
+  score_invariant_enabled: { label: '评分不变量闸门', hint: '闸门放行后重新评分，若已低于开仓门槛则拦截' },
+
+  // 仓位 / 资金
+  conviction_tiers: { label: '置信度仓位档位', hint: '按 AI 置信度映射仓位倍数（每行 [置信度, 倍数]，JSON）' },
+  min_history_bars: { label: '最小历史K线数', unit: ' 根', hint: '少于该数量K线则不研判（0=不限制）' },
+  override_max_daily_extension_pct: { label: '强制单最大日涨幅', unit: '%', hint: '强制开仓路径允许的当日最大涨幅' },
+  notional_cap_tier_equity_usd: { label: '阶梯资金门槛', unit: ' USDC', hint: '权益超过此值后名义金额上限按倍数放宽' },
+  notional_cap_tier_multiple: { label: '阶梯资金倍数', unit: 'x', hint: '权益达标后名义金额上限的放宽倍数' },
+  min_tradable_equity_usd: { label: '最低可交易权益', unit: ' USDC', hint: '账户权益低于此值则停止开仓' },
+  min_order_usd: { label: '最小下单金额', unit: ' USDC', hint: '低于此金额的订单不下发（交易所最小额限制）' },
+  correlation_crypto_coins: { label: '相关性币种清单', hint: '用于相关性风控的币种列表（每行一个）' },
+
+  // 止损止盈
+  sl_ceiling_pct: { label: '止损上限', unit: '%', hint: '动态止损距离不超过此百分比' },
+  sl_ceiling_hard_max_pct: { label: '止损硬上限', unit: '%', hint: '任何情况下止损距离的绝对上限' },
+  sl_floor_pct: { label: '止损下限', unit: '%', hint: '动态止损距离不小于此百分比' },
+  sl_buffer_bps: { label: '止损缓冲', unit: ' bps', hint: '止损挂单与触发价之间的缓冲基点' },
+  sl_move: { label: '止损移动门槛', hint: '移动止损的最小间隔与最小变动基点（JSON 对象）' },
+  tp_atr_mult: { label: '止盈 ATR 倍数', unit: 'x', hint: '止盈距离 = ATR × 此倍数' },
+  liquidation_maint_margin_pct: { label: '强平维持保证金', unit: '%', hint: '估算强平价所用的维持保证金率' },
+  liq_buffer_usd: { label: '强平缓冲金额', unit: ' USDC', hint: '入场价与强平价之间要求的最小价格缓冲' },
+  funding_lookback_hours: { label: '资金费率回溯', unit: ' 小时', hint: '判定资金费率异常时回溯的小时数' },
+
+  // 执行 / 成交
+  maker_execution: { label: '挂单执行', hint: 'Maker 限价单参数（偏移基点/有效期/最大金额，JSON 对象）' },
+  execution: { label: '成交费率', hint: '吃单手续费率与回合成交次数（JSON 对象）' },
+  shadow_book: { label: '影子账本', hint: '影子记账开关/初始资金/费率（JSON 对象）' },
+  aligned_min_conf: { label: '顺势最低置信度', unit: '（0-1）', hint: '顺趋势交易适用的更低置信度门槛' },
+  own_gap_demote_pct: { label: '自身偏离降级', unit: '%', hint: '价格偏离 4h EMA 超过此值则降级（0=不启用）' },
+  leverage_tier_shadow: { label: '杠杆档位影子', hint: '按 ATR/评分调整杠杆的影子配置（JSON 对象）' },
+
+  // 评分 / 震荡
+  chop_burst_min_score: { label: '震荡突发最低分', hint: '震荡市中突发信号放行所需的最低分数' },
+
+  // 内部配置对象（JSON）
+  regime_score: { label: '趋势评分权重', hint: 'ADX/ATR/EMA/价格/OBV 五因子权重与阈值（JSON 对象）' },
+  funding_regime: { label: '资金费率 regime', hint: '资金费率/OI 缓存与拥挤判定阈值（JSON 对象）' },
+  reflection: { label: '盘后反思', hint: '盘后复盘注入开关/字数/注入次数/超时（JSON 对象）' },
+  research_cooldown_adaptive: { label: '自适应研判冷却', hint: '按波动/成交量自适应冷却（JSON 对象）' },
+  sigma_burst_gate: { label: 'Sigma 突发闸门', hint: '按收益率/成交量标准差拦截突发（JSON 对象）' },
+  options_gex: { label: '期权 GEX', hint: 'GEX 信号缓存/超时参数（JSON 对象）' },
+  short_volume: { label: '做空成交量', hint: '做空量信号缓存/拥挤比例/回溯天数（JSON 对象）' },
+  crypto_whale: { label: '加密鲸鱼', hint: '鲸鱼成交监控窗口/最小金额/页数（JSON 对象）' },
+  news_catalyst: { label: '新闻催化剂', hint: '新闻缓存/突发倍数/RSS/并发参数（JSON 对象）' },
+  whale_index: { label: '鲸鱼指数', hint: 'OI/资金费率/价格鲸鱼累积识别阈值（JSON 对象）' },
+  memory_limits: { label: '记忆容量限制', hint: '感知/研判/成交记录的条数与天数上限（JSON 对象）' },
+  memory_quality: { label: '记忆质量校验', hint: '异常涨跌幅/滑点样本校验参数（JSON 对象）' },
+  dashboard_equity: { label: '看板权益', hint: '看板权益回撤/陈旧tick/去重参数（JSON 对象）' },
+  http_cache: { label: 'HTTP 缓存', hint: '各接口响应缓存有效期（JSON 对象）' },
+  hl_client_io: { label: 'HL 客户端 IO', hint: '超时/杠杆/滑点/缓存/WebSocket 参数（JSON 对象）' },
+  hl_rate_limit: { label: 'HL 限流', hint: '令牌桶速率/容量/重试/端点闸门（JSON 对象）' },
+  price_crosscheck: { label: '价格交叉校验', hint: 'HL 与 Binance 价格偏差告警/拦截基点（JSON 对象）' },
+  news_freshness_days: { label: '新闻新鲜度', unit: ' 天', hint: '超过该天数的新闻不纳入研判' },
+  news_cache_ttl_s: { label: '新闻缓存时长', unit: ' 秒' },
+  news_http_timeout_s: { label: '新闻请求超时', unit: ' 秒' },
+  llm_circuit_breaker: { label: 'LLM 熔断器', hint: '连续失败次数与冷却时长（JSON 对象）' },
+  coin_overrides: { label: '币种专项覆盖', hint: '针对单个币种的参数覆盖（JSON 对象）' },
+  circuit_breaker: { label: '断路器', hint: '单币/日亏损/连亏/回撤熔断阈值（JSON 对象）' },
+  market_circuit: { label: '市场断路器', hint: '指数暴跌/止损聚集/资金费率极端熔断（JSON 对象）' },
+  volume_confirm: { label: '成交量确认', hint: '信号所需成交量倍数与回溯周期（JSON 对象）' },
+  confidence_decay: { label: '置信度衰减', hint: '按时间衰减置信度（默认关闭，JSON 对象）' },
+  signal_age_decay: { label: '信号年龄衰减', hint: '各触发器半衰期与衰减参数（JSON 对象）' },
+  atr_regime_calibration: { label: 'ATR regime 校准', hint: '按波动率调整 ATR 倍数（默认关闭，JSON 对象）' },
+  trend_filter_200ma: { label: '200MA 趋势过滤', hint: '价格在 200 均线下方时拦截做多（JSON 对象）' },
+  daily_extension_cap: { label: '日涨幅上限', hint: '当日涨幅过大时拦截追高（JSON 对象）' },
+  reentry_cap: { label: '再入场上限', hint: '同币种在时间窗内的开仓次数上限（JSON 对象）' },
+  xs_reversal: { label: '超卖反转', hint: '超卖区间反转做多因子（默认关闭，JSON 对象）' },
+  regime_risk_overlay: { label: 'Regime 风控覆盖', hint: '按趋势/震荡自动调整持仓与做空（JSON 对象）' },
+  ta_late_entry: { label: 'TA 追高拦截', hint: 'RSI 极端/超延伸时拦截追高（JSON 对象）' },
+  scan: { label: '扫描参数', hint: '最低分/K线周期/数量/缓存/收盘刷新（JSON 对象）' },
+  trigger_weights: { label: '触发器权重', hint: '各触发器在综合评分中的权重（JSON 对象）' },
+  trigger_thresholds: { label: '触发器阈值', hint: '突破/爆发/趋势等触发阈值（JSON 对象）' },
+  scan_budget: { label: '扫描预算', hint: '市场数量/批次/并发/速率预算（JSON 对象）' },
+  research_llm: { label: '研判 LLM', hint: '模型/温度/token/超时/重试参数（JSON 对象）' },
+  research_fetch: { label: '研判数据抓取', hint: '并发连接与各类数据抓取超时（JSON 对象）' },
+  dsl_state_io: { label: 'DSL 状态 IO', hint: 'DSL 状态保存缓存/重试/退避（JSON 对象）' },
+  analyst_scoring: { label: '分析师评分', hint: '多位分析师的置信度/评分门槛（JSON 对象）' },
+  loop_runtime: { label: '循环运行时', hint: '交易循环日志/扫描间隔/并行/看门狗（JSON 对象）' },
+
   // 未在 PARAM_META 中显式标注但 trader schema 中存在的键，
   // 会自动归入「其他参数」分组并以 key 作为标签显示。
 };
@@ -146,10 +231,10 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { title: '运行模式', icon: '⚡', keys: ['mode', 'override_requires_ai', 'enable_crypto', 'enable_hip3', 'trend_surface_enabled'] },
-  { title: '仓位与杠杆', icon: '⚖️', keys: ['equity_fraction_per_trade', 'leverage', 'max_trade_notional_usd', 'max_concurrent', 'max_total_notional_pct', 'tp_scale_fraction', 'conviction_sizing'] },
-  { title: '风控参数', icon: '🛡️', keys: ['max_daily_loss_usd', 'daily_giveback_halt_pct', 'daily_giveback_min_peak_usd', 'min_available_margin_pct', 'cooldown_min', 'loss_cooldown_min', 'research_cooldown_min', 'held_research_interval_min', 'min_ai_close_hold_min', 'sl_atr_mult', 'min_ai_confidence', 'max_atr_pct', 'max_spread_pct', 'spread_gate_fail_open'] },
+  { title: '仓位与杠杆', icon: '⚖️', keys: ['equity_fraction_per_trade', 'leverage', 'max_trade_notional_usd', 'max_concurrent', 'max_total_notional_pct', 'tp_scale_fraction', 'conviction_sizing', 'conviction_tiers', 'min_tradable_equity_usd', 'min_order_usd', 'notional_cap_tier_equity_usd', 'notional_cap_tier_multiple', 'min_history_bars'] },
+  { title: '风控参数', icon: '🛡️', keys: ['max_daily_loss_usd', 'daily_giveback_halt_pct', 'daily_giveback_min_peak_usd', 'min_available_margin_pct', 'cooldown_min', 'loss_cooldown_min', 'research_cooldown_min', 'held_research_interval_min', 'min_ai_close_hold_min', 'sl_atr_mult', 'min_ai_confidence', 'max_atr_pct', 'max_spread_pct', 'spread_gate_fail_open', 'max_signal_price_deviation_pct', 'score_invariant_enabled', 'roe_halt_enabled', 'roe_halt_threshold_pct', 'auto_flatten_on_global_halt', 'auto_flatten_on_coin_circuit', 'sl_ceiling_pct', 'sl_ceiling_hard_max_pct', 'sl_floor_pct', 'sl_buffer_bps', 'sl_move', 'tp_atr_mult', 'liquidation_maint_margin_pct', 'liq_buffer_usd', 'funding_lookback_hours', 'aligned_min_conf', 'own_gap_demote_pct', 'chop_burst_min_score', 'maker_execution'] },
   { title: 'HIP-3 市场', icon: '◆', keys: ['hip3_dex_allowlist', 'hip3_dex_blocklist', 'min_hip3_volume_usd'] },
-  { title: '市场过滤', icon: '◎', keys: ['coin_allowlist', 'coin_blocklist', 'min_market_volume_usd', 'min_short_volume_usd', 'max_crypto_long_correlated', 'crowded_with_min_conf', 'counter_regime_min_conf', 'min_trend_score', 'chop_min_conf', 'chop_min_score', 'against_funding_min_conf', 'against_funding_min_score', 'strong_trend_threshold', 'trend_threshold', 'neutral_threshold'] },
+  { title: '市场过滤', icon: '◎', keys: ['coin_allowlist', 'coin_blocklist', 'min_market_volume_usd', 'min_short_volume_usd', 'max_crypto_long_correlated', 'crowded_with_min_conf', 'counter_regime_min_conf', 'min_trend_score', 'chop_min_conf', 'chop_min_score', 'against_funding_min_conf', 'against_funding_min_score', 'strong_trend_threshold', 'trend_threshold', 'neutral_threshold', 'correlation_crypto_coins'] },
   { title: '信号强化', icon: '📡', keys: ['signal_enforcement', 'shadow_signals', 'gex_signal', 'momentum_continuation', 'candlestick_patterns', 'momentum_reentry', 'runner_mover_surface', 'capital_rotation', 'research_rescore_delta', 'whale_scan_bypass', 'whale_regime_bypass', 'whale_force_execute', 'whale_size_multiplier', 'block_counter_trend_bypass', 'force_execute_composite', 'composite_force_execute', 'breakout_force_execute', 'force_execute_slow_burn_count', 'ta_sidestep_force_execute', 'ta_sidestep_min_slow_burn_count'] },
   { title: '高级策略', icon: '🧩', keys: ['runner_entry_gate', 'plan_b', 'atr_risk_sizing', 'regime_classifier', 'debate_gate', 'debate_research'] },
 ];
