@@ -249,9 +249,10 @@ onUnmounted(() => { if (timer) window.clearInterval(timer); });
                class="rounded-lg border border-[var(--border)] p-3">
             <div class="flex items-center justify-between">
               <span class="text-xs font-medium">{{ ARM_LABEL[key] || key }}</span>
-              <span :class="a.mode === 'enforce' ? 'badge badge-ok'
+              <span :class="!a.enabled ? 'badge badge-muted'
+                            : a.mode === 'enforce' ? 'badge badge-ok'
                             : a.mode === 'shadow' ? 'badge badge-purple' : 'badge badge-muted'">
-                {{ a.mode }}
+                {{ a.enabled ? a.mode : 'off' }}
               </span>
             </div>
             <div class="text-[11px] text-[var(--text-muted)] mt-1.5 font-mono">
