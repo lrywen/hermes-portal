@@ -167,6 +167,21 @@ function modeBadge(mode: string) {
   if (mode === 'shadow') return 'badge-purple';
   return 'badge-muted';
 }
+// 数据年龄：把「最新记录距今」转成可读短文本（<24h 显示小时，否则天）
+function ageHTxt(a: any): string {
+  const h = Number(a?.last_record_age_h);
+  if (isNaN(h) || h < 0) return '无记录';
+  if (h < 1) return '<1h前';
+  if (h < 24) return `${h.toFixed(0)}h前`;
+  return `${(h / 24).toFixed(0)}d前`;
+}
+// 采数状态颜色：停滞/数据年龄越界用警示色，正常采数用中性
+function ageClass(a: any): string {
+  if (a?.collection_stalled) return 'text-rose-400';
+  const h = Number(a?.last_record_age_h);
+  if (isNaN(h)) return 'text-[var(--text-muted)]';
+  return h >= 24 ? 'text-amber-300' : 'text-emerald-400';
+}
 const KIND_CN: Record<string, string> = { block: '拦截', change: '调整', signal: '信号' };
 function kindCN(k: string) {
   return KIND_CN[k] || k || '—';
@@ -772,6 +787,10 @@ onUnmounted(() => {
               </td>
               <td class="py-2.5 px-3">
                 <span class="badge" :class="modeBadge(a.mode)">{{ a.mode }}</span>
+                <div v-if="a.mode !== 'off'" class="font-mono text-[10px] mt-1"
+                     :class="ageClass(a)" :title="'最新影子记录时间：' + (a.last_record_ms ? new Date(a.last_record_ms).toLocaleString('zh-CN') : '无')">
+                  {{ ageHTxt(a) }}
+                </div>
               </td>
               <td class="py-2.5 px-3 text-[var(--text-muted)]">{{ kindCN(a.kind) }}</td>
               <td class="py-2.5 px-3 whitespace-nowrap">
