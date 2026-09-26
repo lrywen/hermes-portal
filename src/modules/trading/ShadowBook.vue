@@ -13,6 +13,7 @@ import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import http from '@/shared/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { useSseFeedStore } from '@/stores/sseFeed';
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
@@ -26,6 +27,7 @@ const API = '/api/portal/trader/api/dashboard/shadow';
 
 const auth = useAuthStore();
 const toast = useToast();
+const confirmStore = useConfirmStore();
 
 const loading = ref(true);
 const error = ref('');
@@ -64,7 +66,10 @@ function scheduleRefresh() {
 }
 
 // ---------------------------------------------------------------- data
+// 请求序号：每次 loadAll 递增，仅当仍是最新一次请求时才写回，防止旧响应乱序覆盖新数据
+let loadSeq = 0;
 async function loadAll() {
+  const seq = ++loadSeq;
   try {
     error.value = '';
     const [a, s, t, e] = await Promise.all([
@@ -73,6 +78,7 @@ async function loadAll() {
       http.get(`${API}/trades`, { params: { limit: 500 } }),
       http.get(`${API}/equity-curve`),
     ]);
+    if (seq !== loadSeq) return; // 已有更新的请求在途/完成，丢弃本次旧数据
     account.value = a.data;
     stats.value = s.data;
     fills.value = Array.isArray(t.data?.trades) ? t.data.trades : [];
@@ -84,9 +90,10 @@ async function loadAll() {
     }
     buildChart();
   } catch (e: any) {
+    if (seq !== loadSeq) return;
     error.value = e?.response?.data?.detail || '加载影子账本失败';
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
 
@@ -212,7 +219,7 @@ const fundFlow = computed(() => {
 // ---------------------------------------------------------------- actions
 async function manualClose(p: any) {
   if (!canManage.value) return;
-  if (!confirm(`确定按当前标记价模拟平仓 ${p.coin}（${p.side === 'long' ? '做多' : '做空'}）？`)) return;
+  if (!(await confirmStore.confirm({ message: `确定按当前标记价模拟平仓 ${p.coin}（${p.side === 'long' ? '做多' : '做空'}）？`, danger: true, confirmText: '平仓' }))) return;
   closing.value = p.coin;
   try {
     const { data } = await http.post(`${API}/close`, { coin: p.coin, side: p.side });
@@ -233,7 +240,7 @@ async function resetBook() {
     toast.err('请输入有效的起始资金');
     return;
   }
-  if (!confirm(`重置将清空全部模拟持仓与流水，并把起始资金设为 $${bal.toLocaleString()}，确定？`)) return;
+  if (!(await confirmStore.confirm({ title: '重置影子账本', message: `重置将清空全部模拟持仓与流水，并把起始资金设为 $${bal.toLocaleString()}，确定？`, danger: true, confirmText: '重置' }))) return;
   resetting.value = true;
   try {
     await http.post(`${API}/reset`, { starting_balance: bal });
@@ -253,7 +260,7 @@ async function depositFunds() {
     toast.err('请输入有效的注资金额');
     return;
   }
-  if (!confirm(`向影子账户追加 $${amt.toLocaleString()} 虚拟资金？\n（持仓、流水、盈亏统计均保留，仅增加可用资金）`)) return;
+  if (!(await confirmStore.confirm({ message: `向影子账户追加 $${amt.toLocaleString()} 虚拟资金？\n（持仓、流水、盈亏统计均保留，仅增加可用资金）`, confirmText: '注资' }))) return;
   depositing.value = true;
   try {
     const { data } = await http.post(`${API}/deposit`, { amount: amt });

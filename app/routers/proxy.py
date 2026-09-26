@@ -75,6 +75,13 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/dashboard/config/history", "config:read", None),
     ("/api/dashboard/config/schema", "config:read", None),
     ("/api/dashboard/config", None, "config:write"),  # GET 为公开投影配置
+    # ---- 统一敏感配置（LLM/交易所/飞书）----
+    # 读 = config:read；写（POST/PUT/DELETE）= config:write。更具体的子路径
+    # 必须排在 /api/dashboard/secrets 之前。
+    ("/api/dashboard/secrets/llm", "config:read", "config:write"),
+    ("/api/dashboard/secrets/exchange", "config:read", "config:write"),
+    ("/api/dashboard/secrets/feishu", "config:read", "config:write"),
+    ("/api/dashboard/secrets", "config:read", "config:write"),
     # ---- 公开行情/仪表盘只读 ----
     ("/api/dashboard/summary", None, _DENY),
     ("/api/dashboard/positions", None, _DENY),
@@ -342,6 +349,7 @@ async def menu(user: User = Depends(get_current_user)):
                     # expose gate posture/blind signals -> operator-only menu.
                     {"id": "risk-arms", "label": "影子臂评级", "path": "/risk-arms", "icon": "ShieldAlert"} if can("operator:mode") else None,
                     {"id": "config", "label": "系统配置", "path": "/config", "icon": "Sliders"},
+                    {"id": "integration-config", "label": "集成配置", "path": "/integration-config", "icon": "Brain"},
                     {"id": "push", "label": "推送设置", "path": "/push", "icon": "BellRing"},
                     {"id": "alerts", "label": "提醒设置", "path": "/alerts", "icon": "Bell"},
                     {"id": "postmortems", "label": "复盘报告", "path": "/postmortems", "icon": "FileText", "embedded": True},

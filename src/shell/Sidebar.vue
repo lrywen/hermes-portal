@@ -11,6 +11,7 @@
           :to="item.path"
           class="menu-item"
           :class="{ active: isActive(item.path!) }"
+          :aria-current="isActive(item.path!) ? 'page' : undefined"
           @click="onNavigate"
         >
           <span class="mi-icon">{{ iconChar(item.icon) }}</span>
@@ -24,6 +25,7 @@
             :to="child.path!"
             class="menu-item sub"
             :class="{ active: isActive(child.path!) }"
+            :aria-current="isActive(child.path!) ? 'page' : undefined"
             :title="child.label"
             @click="onNavigate"
           >
@@ -153,7 +155,7 @@ function iconChar(name?: string): string {
   padding: 9px;
 }
 .menu-item.active {
-  background: rgba(59, 130, 246, 0.15);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent-2);
 }
 .mi-icon {

@@ -16,6 +16,7 @@ import { useSseFeedStore } from '@/stores/sseFeed';
 const toast = useToast();
 const loading = ref(true);
 const error = ref('');
+const stale = ref(false);
 const trades = ref<any[]>([]);
 const limit = ref(100);
 const filterCoin = ref('');
@@ -107,8 +108,14 @@ async function load() {
       return changed ? { ...old, ...nt } : old;
     });
     error.value = '';
+    stale.value = false;
   } catch (e: any) {
-    error.value = e?.response?.data?.detail || '加载成交历史失败';
+    // 已有数据时保留表格，仅以横幅标记数据可能陈旧；首次加载才整屏报错
+    if (trades.value.length > 0) {
+      stale.value = true;
+    } else {
+      error.value = e?.response?.data?.detail || '加载成交历史失败';
+    }
   } finally {
     loading.value = false;
   }
@@ -188,6 +195,27 @@ function sourceLabel(s: string) {
   return SOURCE_LABELS[s] || s;
 }
 // 开仓行 hover 备注
+const expandedGate = ref<Record<number, boolean>>({});
+function hasGates(t: any) {
+  return t && t.gates && typeof t.gates === 'object' && Object.keys(t.gates).length > 0;
+}
+// 将 gates 对象结构化为 [名称, 通过, 详情] 列表，替代 JSON 字符串
+function gateRows(t: any): { name: string; pass: boolean | null; detail: string }[] {
+  if (!hasGates(t)) return [];
+  return Object.entries(t.gates as Record<string, any>).map(([k, v]) => {
+    if (v === true) return { name: k, pass: true, detail: '' };
+    if (v === false) return { name: k, pass: false, detail: '' };
+    if (v && typeof v === 'object') {
+      const pass = v.pass === undefined ? v.ok : v.pass;
+      const detail = v.reason || v.detail || JSON.stringify(v);
+      return { name: k, pass: pass === undefined ? null : !!pass, detail };
+    }
+    return { name: k, pass: null, detail: String(v) };
+  });
+}
+function gateKey(t: any, idx: number) {
+  return `${t.kind}-${t.ts}-${t.coin}-${idx}`;
+}
 function openHint(t: any) {
   const parts: string[] = [];
   if (t.regime) parts.push(`regime: ${t.regime}`);
@@ -301,7 +329,10 @@ onUnmounted(() => {
     <div v-if="loading" class="card text-center py-10 text-[var(--text-muted)]">加载中...</div>
     <div v-else-if="error" class="card text-rose-300">⚠️ {{ error }}</div>
 
-    <div v-else class="card overflow-x-auto">
+    <template v-else>
+    <div v-if="stale" class="card border-amber-500 text-amber-300 mb-3">⚠️ 刷新失败，当前展示可能是较早的数据</div>
+
+    <div class="card overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
@@ -309,23 +340,24 @@ onUnmounted(() => {
             <th class="py-2 px-3 text-center">类型</th>
             <th class="py-2 px-3">币种</th>
             <th class="py-2 px-3">方向</th>
-            <th class="py-2 px-3 text-right">杠杆</th>
+            <th class="py-2 px-3 text-right hidden md:table-cell">杠杆</th>
             <th class="py-2 px-3 text-right">价格</th>
-            <th class="py-2 px-3 text-right" title="标的现货本身的价格涨跌幅，未乘杠杆（已扣除手续费前）；仓位盈亏% = 现货% × 杠杆 - 手续费">
+            <th class="py-2 px-3 text-right hidden md:table-cell" title="标的现货本身的价格涨跌幅，未乘杠杆（已扣除手续费前）；仓位盈亏% = 现货% × 杠杆 - 手续费">
               价格涨跌%<span class="opacity-60">ⓘ</span>
             </th>
             <th class="py-2 px-3 text-right" title="含杠杆的已实现仓位回报率（已扣手续费），非标的价格涨跌幅">
               仓位盈亏%<span class="opacity-60">ⓘ</span>
             </th>
             <th class="py-2 px-3 text-right">已实现盈亏</th>
-            <th class="py-2 px-3 text-right" title="上行美元金额；下行百分比为含杠杆的手续费占仓位回报口径">手续费<span class="opacity-60">ⓘ</span></th>
+            <th class="py-2 px-3 text-right hidden md:table-cell" title="上行美元金额；下行百分比为含杠杆的手续费占仓位回报口径">手续费<span class="opacity-60">ⓘ</span></th>
             <th class="py-2 px-3">原因 / 备注</th>
-            <th class="py-2 px-3 whitespace-nowrap">持仓时长</th>
-            <th class="py-2 px-3 text-center">来源</th>
+            <th class="py-2 px-3 whitespace-nowrap hidden md:table-cell">持仓时长</th>
+            <th class="py-2 px-3 text-center hidden md:table-cell">来源</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in paged" :key="`${t.kind || 'close'}-${t.ts}-${t.coin}-${t.side}-${t.pair_id || ''}`"
+          <template v-for="(t, i) in paged" :key="`${t.kind || 'close'}-${t.ts}-${t.coin}-${t.side}-${t.pair_id || ''}`">
+          <tr
               class="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-hover)] align-top"
               :class="t.kind === 'open' ? 'opacity-90' : ''">
             <td class="py-2 px-3 text-xs whitespace-nowrap text-[var(--text-muted)]">{{ fmtTime(t.ts) }}</td>
@@ -340,7 +372,7 @@ onUnmounted(() => {
             <td class="py-2 px-3">
               <span class="badge" :class="t.side === 'long' ? 'badge-ok' : 'badge-danger'">{{ t.side === 'long' ? '做多' : '做空' }}</span>
             </td>
-            <td class="py-2 px-3 text-right font-mono text-[var(--text-muted)]">
+            <td class="py-2 px-3 text-right font-mono text-[var(--text-muted)] hidden md:table-cell">
               <template v-if="t.kind === 'open'">—</template>
               <template v-else>{{ t.leverage }}x<span v-if="t.leverage_estimated" class="opacity-60">~</span></template>
             </td>
@@ -355,7 +387,7 @@ onUnmounted(() => {
               </template>
             </td>
             <!-- 现货价格涨跌%（未加杠杆） -->
-            <td class="py-2 px-3 text-right font-mono text-[var(--text-muted)]">{{ t.kind === 'close' && t.spot_pct !== undefined && t.spot_pct !== null ? fmtNum(t.spot_pct) : '—' }}</td>
+            <td class="py-2 px-3 text-right font-mono text-[var(--text-muted)] hidden md:table-cell">{{ t.kind === 'close' && t.spot_pct !== undefined && t.spot_pct !== null ? fmtNum(t.spot_pct) : '—' }}</td>
             <!-- 仓位盈亏%（含杠杆、净手续费） -->
             <td class="py-2 px-3 text-right font-mono font-semibold" :class="pctClass(t.pnl_pct)">
               <template v-if="t.kind === 'close'">
@@ -375,7 +407,7 @@ onUnmounted(() => {
               <template v-else>—</template>
             </td>
             <!-- 手续费 -->
-            <td class="py-2 px-3 text-right font-mono text-[var(--text-muted)]">
+            <td class="py-2 px-3 text-right font-mono text-[var(--text-muted)] hidden md:table-cell">
               <template v-if="t.kind === 'close'">
                 <div v-if="t.fee_usd !== null && t.fee_usd !== undefined">{{ fmtUsd(t.fee_usd) }}</div>
                 <div>{{ t.fees_pct !== undefined && t.fees_pct !== null ? fmtNum(t.fees_pct) + '%' : '—' }}</div>
@@ -394,6 +426,11 @@ onUnmounted(() => {
                 <div v-if="t.stop_px || t.tp_px" class="text-[10px] text-[var(--text-muted)] mt-1">
                   止损 {{ t.stop_px ? fmtNum(t.stop_px, 5) : '—' }} / 止盈 {{ t.tp_px ? fmtNum(t.tp_px, 5) : '—' }}
                 </div>
+                <button
+                  v-if="hasGates(t)"
+                  class="text-[10px] text-blue-400 mt-1 underline"
+                  @click="expandedGate[i] = !expandedGate[i]"
+                >{{ expandedGate[i] ? '收起闸门诊断' : `闸门诊断 (${gateRows(t).length})` }}</button>
               </template>
               <template v-else>
                 <div class="truncate" :title="t.detail || t.reason || ''">
@@ -406,18 +443,36 @@ onUnmounted(() => {
               </template>
             </td>
             <!-- 持仓时长 -->
-            <td class="py-2 px-3 text-xs whitespace-nowrap text-[var(--text-muted)]">
+            <td class="py-2 px-3 text-xs whitespace-nowrap text-[var(--text-muted)] hidden md:table-cell">
               <template v-if="t.kind === 'close'">{{ fmtHold(t.hold_minutes) }}</template>
               <template v-else>
                 <span v-if="t.close_ts" class="text-emerald-400/80">已平仓</span>
                 <span v-else class="text-amber-400/80">持仓中</span>
               </template>
             </td>
-            <td class="py-2 px-3 text-center">
+            <td class="py-2 px-3 text-center hidden md:table-cell">
               <span v-if="t.kind !== 'open'" class="badge" :class="sourceBadgeClass(t.source)">{{ sourceLabel(t.source) }}</span>
               <span v-else class="badge badge-muted">成交</span>
             </td>
           </tr>
+          <tr v-if="expandedGate[i] && hasGates(t)">
+            <td colspan="13" class="bg-[var(--surface-2)] py-2 px-3">
+              <table class="w-full text-[11px]">
+                <tbody>
+                  <tr v-for="g in gateRows(t)" :key="g.name" class="border-b border-[var(--border)] last:border-0">
+                    <td class="py-1 pr-3 font-mono whitespace-nowrap w-48">{{ g.name }}</td>
+                    <td class="py-1 pr-3 w-16">
+                      <span v-if="g.pass === true" class="badge badge-ok">通过</span>
+                      <span v-else-if="g.pass === false" class="badge badge-danger">拦截</span>
+                      <span v-else class="badge badge-muted">—</span>
+                    </td>
+                    <td class="py-1 text-[var(--text-muted)] break-all">{{ g.detail || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          </template>
           <tr v-if="paged.length === 0">
             <td colspan="13" class="py-10 text-center text-[var(--text-muted)]">暂无成交记录</td>
           </tr>
@@ -432,5 +487,6 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>

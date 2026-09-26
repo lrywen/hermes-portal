@@ -1,6 +1,6 @@
 <template>
   <header class="topbar">
-    <button class="collapse-btn" @click="$emit('toggle-sidebar')">☰</button>
+    <button class="collapse-btn" aria-label="切换侧边栏" @click="$emit('toggle-sidebar')">☰</button>
     <div class="crumb">{{ currentTitle }}</div>
     <div class="spacer" />
     <div class="mode-indicator" :class="portal.mode.toLowerCase()">

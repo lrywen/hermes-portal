@@ -15,10 +15,19 @@
   --success: #10b981;
   --warn: #f59e0b;
   --danger: #ef4444;
+  --purple: #a78bfa;
   --han: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   --mono: 'JetBrains Mono', Menlo, Consolas, monospace;
   --radius: 10px;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  /* 兼容别名：历史模板中大量引用这些名称，统一映射到规范令牌，
+     避免 var() 取不到值导致次级文字/悬停底色失效。 */
+  --text-muted: var(--muted);
+  --text-secondary: var(--muted);
+  --text-2: var(--muted);
+  --text-primary: var(--text);
+  --surface-hover: #202838;
 }
 
 [data-theme='light'] {
@@ -32,6 +41,8 @@
   --success: #059669;
   --warn: #d97706;
   --danger: #dc2626;
+  --purple: #7c3aed;
+  --surface-hover: #eaeff5;
 }
 
 * {
@@ -164,8 +175,8 @@ textarea {
   color: var(--muted);
 }
 .badge-purple {
-  background: rgba(167, 139, 250, 0.15);
-  color: #a78bfa;
+  background: color-mix(in srgb, var(--purple) 15%, transparent);
+  color: var(--purple);
 }
 
 /* 滚动条 */
@@ -202,5 +213,17 @@ body {
   .input {
     min-height: 40px;
     font-size: 16px; /* ≥16px 避免 iOS 聚焦时自动放大 */
+  }
+}
+
+/* 尊重系统“减少动态效果”：停用脉冲/抖动/过渡等装饰性动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

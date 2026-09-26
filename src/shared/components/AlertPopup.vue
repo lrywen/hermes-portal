@@ -17,7 +17,7 @@
           <div class="alert-head">
             <span class="alert-level-dot" />
             <span class="alert-title">{{ p.title }}</span>
-            <button class="alert-close" @click="alerts.dismiss(p.id)">✕</button>
+            <button class="alert-close" aria-label="关闭提醒" @click="alerts.dismiss(p.id)">✕</button>
           </div>
           <div class="alert-body">{{ p.content }}</div>
           <div class="alert-foot">

@@ -24,6 +24,7 @@
     </div>
     <ToastContainer />
     <AlertPopup />
+    <ConfirmDialog />
     <!-- SSE 实时连接状态指示灯：绿色=已连接，黄色=重连中，红色=已断开；点击展开诊断 -->
     <div class="sse-widget" :class="{ open: diagOpen }">
       <div
@@ -86,6 +87,7 @@ import Sidebar from './Sidebar.vue';
 import TopBar from './TopBar.vue';
 import ToastContainer from '@/shared/components/ToastContainer.vue';
 import AlertPopup from '@/shared/components/AlertPopup.vue';
+import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
 import { useAuthStore } from '@/stores/auth';
 import { usePortalStore } from '@/stores/portal';
 import { useAlertStore } from '@/stores/alerts';

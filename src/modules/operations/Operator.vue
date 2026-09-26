@@ -9,9 +9,11 @@
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import http from '@/shared/api/client';
 import { useToast } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { usePortalStore } from '@/stores/portal';
 
 const toast = useToast();
+const confirmStore = useConfirmStore();
 const portal = usePortalStore();
 
 const cfg = ref<any>({});
@@ -72,7 +74,7 @@ async function setMode(mode: Mode) {
 }
 
 async function forceClose(coin: string) {
-  if (!confirm(`确定强制平仓 ${coin}？`)) return;
+  if (!(await confirmStore.confirm({ message: `确定强制平仓 ${coin}？`, danger: true, confirmText: '平仓' }))) return;
   try {
     await http.post('/api/portal/trader/api/dashboard/operator/close', { coin });
     toast.ok(`${coin} 已市价平仓`);

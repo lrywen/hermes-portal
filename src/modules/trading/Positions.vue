@@ -9,11 +9,13 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import http from '@/shared/api/client';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { useSseFeedStore } from '@/stores/sseFeed';
 import { liqDistPct, liqLevel } from '@/shared/utils/liquidation';
 
 const auth = useAuthStore();
 const toast = useToast();
+const confirmStore = useConfirmStore();
 
 const loading = ref(true);
 const error = ref('');
@@ -71,7 +73,7 @@ async function load() {
 
 async function closePosition(coin: string) {
   if (!canClose.value) return;
-  if (!confirm(`确定平仓 ${coin}？`)) return;
+  if (!(await confirmStore.confirm({ message: `确定平仓 ${coin}？`, danger: true, confirmText: '平仓' }))) return;
   closing.value = coin;
   try {
     // 后端根据 coin 自动查找当前持仓方向并市价平仓，无需传 size
@@ -189,16 +191,16 @@ onUnmounted(() => {
             <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
               <th class="py-2 px-3 font-medium">币种</th>
               <th class="py-2 px-3 font-medium">方向</th>
-              <th class="py-2 px-3 font-medium text-right">仓位</th>
-              <th class="py-2 px-3 font-medium text-right">杠杆</th>
+              <th class="py-2 px-3 font-medium text-right hidden md:table-cell">仓位</th>
+              <th class="py-2 px-3 font-medium text-right hidden md:table-cell">杠杆</th>
               <th class="py-2 px-3 font-medium text-right">开仓价</th>
-              <th class="py-2 px-3 font-medium text-right">标记价</th>
+              <th class="py-2 px-3 font-medium text-right hidden md:table-cell">标记价</th>
               <th class="py-2 px-3 font-medium text-right">强平价</th>
               <th class="py-2 px-3 font-medium text-right">未实现盈亏</th>
-              <th class="py-2 px-3 font-medium text-right" title="含杠杆的仓位回报率（未实现盈亏 / 占用保证金），Hyperliquid 口径，已计入开仓手续费">
+              <th class="py-2 px-3 font-medium text-right hidden md:table-cell" title="含杠杆的仓位回报率（未实现盈亏 / 占用保证金），Hyperliquid 口径，已计入开仓手续费">
                 ROE %<span class="opacity-60">ⓘ</span>
               </th>
-              <th class="py-2 px-3 font-medium text-right" title="标的价格本身相对开仓价的涨跌幅，未乘杠杆；ROE% ≈ 价格涨跌% × 杠杆（扣费前）">
+              <th class="py-2 px-3 font-medium text-right hidden md:table-cell" title="标的价格本身相对开仓价的涨跌幅，未乘杠杆；ROE% ≈ 价格涨跌% × 杠杆（扣费前）">
                 价格涨跌%<span class="opacity-60">ⓘ</span>
               </th>
               <th class="py-2 px-3 font-medium text-center">DSL</th>
@@ -211,10 +213,10 @@ onUnmounted(() => {
               <td class="py-2.5 px-3">
                 <span :class="p.side === 'long' ? 'badge-ok' : 'badge-danger'">{{ p.side === 'long' ? '做多' : '做空' }}</span>
               </td>
-              <td class="py-2.5 px-3 font-mono text-right">{{ fmt(p.size, 4) }}</td>
-              <td class="py-2.5 px-3 font-mono text-right text-[var(--text-muted)]">{{ p.leverage || 1 }}x</td>
+              <td class="py-2.5 px-3 font-mono text-right hidden md:table-cell">{{ fmt(p.size, 4) }}</td>
+              <td class="py-2.5 px-3 font-mono text-right text-[var(--text-muted)] hidden md:table-cell">{{ p.leverage || 1 }}x</td>
               <td class="py-2.5 px-3 font-mono text-right">{{ fmt(p.entry_px, 4) }}</td>
-              <td class="py-2.5 px-3 font-mono text-right">{{ fmt(p.mark_px, 4) }}</td>
+              <td class="py-2.5 px-3 font-mono text-right hidden md:table-cell">{{ fmt(p.mark_px, 4) }}</td>
               <td class="py-2.5 px-3 font-mono text-right">
                 <template v-if="p.liq_px != null">
                   <div>{{ fmt(p.liq_px, 2) }}</div>
@@ -227,10 +229,10 @@ onUnmounted(() => {
               <td class="py-2.5 px-3 font-mono text-right font-medium" :class="pnlColor(p.unrealized_pnl_usd)">
                 {{ p.unrealized_pnl_usd >= 0 ? '+' : '' }}${{ fmt(p.unrealized_pnl_usd, 2) }}
               </td>
-              <td class="py-2.5 px-3 font-mono text-right" :class="pnlColor(p.unrealized_pct)">
+              <td class="py-2.5 px-3 font-mono text-right hidden md:table-cell" :class="pnlColor(p.unrealized_pct)">
                 {{ fmtPct(p.unrealized_pct) }}
               </td>
-              <td class="py-2.5 px-3 font-mono text-right" :class="pnlColor(p.spot_pct)">
+              <td class="py-2.5 px-3 font-mono text-right hidden md:table-cell" :class="pnlColor(p.spot_pct)">
                 {{ fmtPct(p.spot_pct) }}
               </td>
               <td class="py-2.5 px-3 text-center">

@@ -9,11 +9,13 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import http from '@/shared/api/client';
 import { useToast } from '@/stores/toast';
+import { useConfirmStore } from '@/stores/confirm';
 import { useAlertStore } from '@/stores/alerts';
 import { useVoiceBroadcast } from '@/shared/composables/useVoiceBroadcast';
 import type { AlertConfig, AlertEvent, CustomVoice } from '@/shared/types';
 
 const toast = useToast();
+const confirmStore = useConfirmStore();
 const alertStore = useAlertStore();
 const { broadcast, stop } = useVoiceBroadcast();
 
@@ -178,7 +180,7 @@ async function uploadVoice() {
 
 async function deleteVoice(v: CustomVoice) {
   if (!v.id) return;
-  if (!confirm(`确定删除提醒音「${v.name}」？`)) return;
+  if (!(await confirmStore.confirm({ message: `确定删除提醒音「${v.name}」？`, danger: true, confirmText: '删除' }))) return;
   try {
     await http.delete(`/api/portal/alerts/voices/${v.id}`);
     toast.ok('已删除');

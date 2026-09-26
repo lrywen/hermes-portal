@@ -9,8 +9,13 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import http from '@/shared/api/client';
 import { useToast } from '@/stores/toast';
+import { usePortalStore } from '@/stores/portal';
+import { useConfirmStore } from '@/stores/confirm';
+import NestedBlockEditor from '@/shared/components/NestedBlockEditor.vue';
 
 const toast = useToast();
+const portalStore = usePortalStore();
+const confirmStore = useConfirmStore();
 const router = useRouter();
 
 // M5: 风控臂姿态与评级联动（只读，INERT）——数据来自 shadow-arms/grades，
@@ -27,6 +32,8 @@ const saving = ref(false);
 const snapshotting = ref(false);
 const rawMode = ref(false);
 const rawText = ref('');
+// object 控件 JSON 校验：记录解析失败的 key，给出可见提示
+const objectError = reactive<Record<string, boolean>>({});
 
 // ---- 中文标签与说明 ----
 interface ParamMeta {
@@ -239,6 +246,54 @@ const SECTIONS: Section[] = [
   { title: '高级策略', icon: '🧩', keys: ['runner_entry_gate', 'plan_b', 'atr_risk_sizing', 'regime_classifier', 'debate_gate', 'debate_research'] },
 ];
 
+// 以结构化卡片编辑的嵌套对象块
+const NESTED_BLOCK_KEYS = ['launch_capture', 'late_chase'];
+
+type BlockField = { label: string; type: 'bool' | 'int' | 'float'; unit?: string; step?: number; hint?: string };
+
+const LAUNCH_CAPTURE_FIELDS: Record<string, BlockField> = {
+  enabled: { label: '启用启动捕获', type: 'bool' },
+  aggression_min: { label: 'CVD 主动成交最小强度', type: 'float', step: 0.05 },
+  imbalance_min: { label: '盘口失衡最小阈值', type: 'float', step: 0.05 },
+  compression_pct_max: { label: '波动压缩分位上限', type: 'float', unit: '%', step: 1 },
+  require_key_level: { label: '要求临近关键价位', type: 'bool' },
+  flow_confirm_min: { label: 'CVD 流式确认阈值', type: 'float', step: 0.05, hint: '突破时 CVD 单边强度达到该值即可豁免 N 根确认，当根确认启动' },
+  breakout_trend_rvol_min: { label: '突破升级 trend 的 RVOL 阈值', type: 'float', step: 0.1 },
+  breakout_trend_rvol_lookback: { label: 'RVOL 回看根数', type: 'int', step: 1, hint: '近 N 根 5m 内任一 RVOL 达标即升级 trend（1-6）' },
+  weight_aggression: { label: '权重：CVD 强度', type: 'float', step: 0.05 },
+  weight_imbalance: { label: '权重：盘口失衡', type: 'float', step: 0.05 },
+  weight_compression: { label: '权重：波动压缩', type: 'float', step: 0.05 },
+};
+
+const LATE_CHASE_FIELDS: Record<string, BlockField> = {
+  enabled: { label: '启用追高闸门', type: 'bool' },
+  fresh_move_band_pct: { label: '新鲜 move 带宽', type: 'float', unit: '%', step: 0.5 },
+  rsi1h_overbought: { label: '1h RSI 超买阈值', type: 'float', step: 1 },
+  rsi1h_oversold: { label: '1h RSI 超卖阈值', type: 'float', step: 1 },
+  min_anchor_age_sec: { label: '锚点最小年龄', type: 'float', unit: '秒', step: 30 },
+  min_move_extension_pct_for_reset: { label: '允许重锚的最小 move 幅度', type: 'float', unit: '%', step: 0.5 },
+};
+
+const LATE_CHASE_REALTIME_FIELDS: Record<string, BlockField> = {
+  enabled: { label: '启用实时腿', type: 'bool' },
+  rsi_overbought: { label: '实时 RSI 超买', type: 'float', step: 1 },
+  rsi_oversold: { label: '实时 RSI 超卖', type: 'float', step: 1 },
+  max_extension_atr: { label: '最大 extension（ATR 倍数）', type: 'float', step: 0.5 },
+};
+
+// 保证嵌套对象存在，避免编辑器读到 undefined
+function ensureBlock(key: string) {
+  if (!config[key] || typeof config[key] !== 'object') config[key] = {};
+  return config[key] as Record<string, any>;
+}
+
+function ensureRealtime() {
+  const lc = ensureBlock('late_chase');
+  if (!lc.realtime || typeof lc.realtime !== 'object') lc.realtime = {};
+  return lc.realtime as Record<string, any>;
+}
+
+
 // 将 schema keys 按 SECTIONS 分组，剩余归入"其他"
 const grouped = computed(() => {
   const allKeys = Object.keys(schema.value);
@@ -251,6 +306,8 @@ const grouped = computed(() => {
   }
   // DSL 退出单独处理
   if (allKeys.includes('dsl_exit')) assigned.add('dsl_exit');
+  // 启动捕获 / 追高闸门用结构化专用卡，不进"其他"裸 JSON
+  NESTED_BLOCK_KEYS.forEach((k) => { if (allKeys.includes(k)) assigned.add(k); });
   const remaining = allKeys.filter((k) => !assigned.has(k));
   if (remaining.length) {
     result.push({ section: { title: '其他参数', icon: '⚙️', keys: remaining }, keys: remaining });
@@ -309,6 +366,24 @@ async function save() {
         else if (m.type === 'float') payload[k] = parseFloat(payload[k]);
       }
     }
+    // 拦截数值为空/NaN：number input 被清空时会得到 NaN（含嵌套块内字段）
+    let nanLabel = '';
+    for (const [k, v] of Object.entries(payload)) {
+      const t = schema.value[k]?.type;
+      if ((t === 'int' || t === 'float') && Number.isNaN(v as number)) {
+        nanLabel = meta(k).label || k;
+        break;
+      }
+      if (t === 'object' && v && typeof v === 'object') {
+        const hit = Object.values(v as Record<string, any>).find((x) => Number.isNaN(x));
+        if (hit) { nanLabel = k; break; }
+      }
+    }
+    if (nanLabel) {
+      toast.err(`参数「${nanLabel}」含无效数字，请检查`);
+      saving.value = false;
+      return;
+    }
     // 只发送 schema 中已知的 key，过滤掉遗留/未知字段
     const knownKeys = new Set(Object.keys(schema.value));
     const filtered: Record<string, any> = {};
@@ -319,6 +394,8 @@ async function save() {
     toast.ok('配置已保存并即时生效');
     await load();
     await loadHistory();
+    // 同步顶栏运行模式徽标（mode 可能被本次修改）
+    portalStore.loadMode();
   } catch (e: any) {
     toast.err(e?.response?.data?.detail || '保存失败');
   } finally {
@@ -355,7 +432,7 @@ async function createSnapshot() {
 
 async function rollback(id?: string) {
   const label = id ? `快照 ${id}` : '上一次自动备份';
-  if (!confirm(`确定回滚到${label}？当前配置将被覆盖。`)) return;
+  if (!(await confirmStore.confirm({ title: '回滚配置', message: `确定回滚到${label}？当前配置将被覆盖。`, danger: true, confirmText: '回滚' }))) return;
   try {
     await http.post('/api/portal/trader/api/dashboard/config/rollback', id ? { id } : {});
     toast.ok('已回滚');
@@ -495,8 +572,34 @@ onMounted(() => {
         <textarea class="input w-full font-mono text-xs h-96" v-model="rawText"></textarea>
       </div>
 
+      <!-- 嵌套块结构化卡片：启动捕获 / 追高闸门 -->
+      <div v-if="!rawMode" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div v-if="schema.launch_capture" class="card">
+          <div class="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--border)]">
+            <span>🚀</span>
+            <span class="font-semibold">启动捕获 launch_capture</span>
+          </div>
+          <NestedBlockEditor :model="ensureBlock('launch_capture')" :fields="LAUNCH_CAPTURE_FIELDS" />
+        </div>
+
+        <div v-if="schema.late_chase" class="card">
+          <div class="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--border)]">
+            <span>🛑</span>
+            <span class="font-semibold">追高闸门 late_chase</span>
+          </div>
+          <NestedBlockEditor :model="ensureBlock('late_chase')" :fields="LATE_CHASE_FIELDS" />
+          <div class="mt-4 pt-3 border-t border-[var(--border)]">
+            <p class="text-xs text-[var(--text-muted)] mb-2">实时腿 realtime（5m 未收盘 bar）</p>
+            <NestedBlockEditor
+              :model="ensureRealtime()"
+              :fields="LATE_CHASE_REALTIME_FIELDS"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- 分组表单模式 -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div v-if="!rawMode" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         <div v-for="g in grouped" :key="g.section.title" class="card">
           <div class="flex items-center gap-2 mb-3 pb-2 border-b border-[var(--border)]">
             <span>{{ g.section.icon }}</span>
@@ -547,9 +650,11 @@ onMounted(() => {
               <textarea
                 v-else-if="schema[key].type === 'object' && key !== 'dsl_exit'"
                 class="input w-full font-mono text-xs h-20 mt-1"
+                :class="objectError[key] ? 'border-rose-500' : ''"
                 :value="JSON.stringify(config[key], null, 2)"
-                @input="(e) => { try { config[key] = JSON.parse((e.target as HTMLTextAreaElement).value); } catch {} }"
+                @input="(e) => { try { config[key] = JSON.parse((e.target as HTMLTextAreaElement).value); objectError[key] = false; } catch { objectError[key] = true; } }"
               ></textarea>
+              <p v-if="objectError[key]" class="text-[11px] text-rose-400 mt-1">JSON 格式错误，已暂不更新该值</p>
 
               <!-- 字符串 -->
               <input v-else class="input w-full mt-1" v-model="config[key]" />
