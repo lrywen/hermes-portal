@@ -11,6 +11,7 @@ import http from '@/shared/api/client';
 import { useToast } from '@/stores/toast';
 import { useConfirmStore } from '@/stores/confirm';
 import { usePortalStore } from '@/stores/portal';
+import type { ConfigParity, ProtectionArm } from '@/shared/types';
 
 const toast = useToast();
 const confirmStore = useConfirmStore();
@@ -21,6 +22,10 @@ const trackers = ref<any[]>([]);
 // 成交对账状态（M4）：null=从未运行（trader 404），false=加载失败，对象=最近一次对账结果
 const reconcile = ref<any>(null);
 const reconcileFailed = ref(false);
+// 配置危险方向漂移（canonical 比 live 宽松）：count 必须为 0
+const parity = ref<ConfigParity | null>(null);
+// 生效保护臂状态（sizing_v2 / trend_filter / daily_extension_cap）
+const arms = ref<Record<string, ProtectionArm>>({});
 const loading = ref(true);
 const busy = ref(false);
 const command = ref('');
@@ -54,9 +59,28 @@ async function load() {
       reconcileFailed.value = true;
     }
   }
+  // 配置漂移 + 保护臂（只读，失败不影响主面板）
+  try {
+    const [p, r] = await Promise.all([
+      http.get<ConfigParity>('/api/portal/trader/api/dashboard/config-parity'),
+      http.get<{ protection_arms?: Record<string, ProtectionArm> }>(
+        '/api/portal/trader/api/dashboard/risk-status',
+      ),
+    ]);
+    parity.value = p.data;
+    arms.value = r.data?.protection_arms || {};
+  } catch {
+    /* 观测项，静默 */
+  }
 }
 
 type Mode = 'LIVE' | 'SHADOW' | 'OFF';
+
+const ARM_LABEL: Record<string, string> = {
+  sizing_v2: '等风险仓位 v2',
+  trend_filter: '日线 200SMA 趋势闸门',
+  daily_extension_cap: '24h 涨幅硬顶',
+};
 
 async function setMode(mode: Mode) {
   busy.value = true;
@@ -180,6 +204,61 @@ onUnmounted(() => { if (timer) window.clearInterval(timer); });
             @click="setMode('SHADOW')"
           >◐ 切到 SHADOW（模拟盘）</button>
           <button class="btn btn-danger" :disabled="busy || cfg.mode === 'OFF'" @click="setMode('OFF')">⏸️ 切到 OFF</button>
+        </div>
+      </div>
+
+      <!-- 配置危险方向漂移（canonical 比 live 宽松；dangerous_count 必须为 0） -->
+      <div v-if="parity" class="card"
+           :class="parity.dangerous_count > 0 ? 'border-rose-500/50 bg-rose-500/10' : ''">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <h3 class="font-semibold flex items-center gap-2">
+            配置漂移（丢键回落 canonical 是否放宽保护）
+            <span :class="parity.dangerous_count > 0 ? 'badge badge-danger' : 'badge badge-ok'">
+              {{ parity.dangerous_count > 0 ? `${parity.dangerous_count} 项危险` : '0 项危险' }}
+            </span>
+          </h3>
+        </div>
+        <p class="text-[11px] text-[var(--text-muted)] leading-4">
+          比较 canonical 默认与 live 配置：非零表示某保护项一旦丢键、深合并回落会静默放宽。
+        </p>
+        <div v-if="parity.dangerous_count > 0" class="mt-2 overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                <th class="py-1.5 px-2 font-medium">叶子</th>
+                <th class="py-1.5 px-2 font-medium text-right">canonical</th>
+                <th class="py-1.5 px-2 font-medium text-right">live</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(it, i) in parity.items" :key="i" class="border-b border-[var(--border)] last:border-0">
+                <td class="py-1.5 px-2 font-mono text-rose-300">{{ it.leaf }}</td>
+                <td class="py-1.5 px-2 font-mono text-right">{{ it.canonical }}</td>
+                <td class="py-1.5 px-2 font-mono text-right">{{ it.live }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 生效保护臂 -->
+      <div v-if="Object.keys(arms).length" class="card">
+        <h3 class="font-semibold mb-3">生效保护臂</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div v-for="(a, key) in arms" :key="key"
+               class="rounded-lg border border-[var(--border)] p-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium">{{ ARM_LABEL[key] || key }}</span>
+              <span :class="a.mode === 'enforce' ? 'badge badge-ok'
+                            : a.mode === 'shadow' ? 'badge badge-purple' : 'badge badge-muted'">
+                {{ a.mode }}
+              </span>
+            </div>
+            <div class="text-[11px] text-[var(--text-muted)] mt-1.5 font-mono">
+              enabled: {{ a.enabled ? 'true' : 'false' }}
+              <span v-if="a.cap_pct !== undefined && a.cap_pct !== 1.0"> · cap {{ (a.cap_pct * 100).toFixed(0) }}%</span>
+            </div>
+          </div>
         </div>
       </div>
 

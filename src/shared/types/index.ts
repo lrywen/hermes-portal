@@ -73,3 +73,84 @@ export interface ToastMessage {
   kind: 'ok' | 'err' | 'info';
   text: string;
 }
+
+// ===== 交易核心数据（对应 hermes-trader /api/dashboard/* 载荷）=====
+
+/** /api/dashboard/summary */
+export interface TraderSummary {
+  equity: number;
+  available: number;
+  dex_equity: Record<string, number>;
+  dex_available: Record<string, number>;
+  spot_usdc: number;
+  daily_pnl: number;
+  daily_pnl_pct: number;
+  open_positions: number;
+  last_tick_age_s: number | null;
+  last_scan_triggers: number;
+  status: string;
+  ts: number;
+}
+
+/** DSL 移动止盈追踪器片段（持仓行内的 dsl 字段） */
+export interface DslTrackerInfo {
+  peak_px: number;
+  floor_px: number | null;
+  phase: 'phase1' | 'phase2';
+}
+
+/** /api/dashboard/positions 数组元素 */
+export interface TraderPosition {
+  coin: string;
+  side: 'long' | 'short';
+  size: number;
+  leverage: number;
+  entry_px: number;
+  mark_px: number;
+  unrealized_pnl_usd: number;
+  unrealized_pct: number;
+  spot_pct: number;
+  dsl: DslTrackerInfo | null;
+  liq_px: number | null;
+}
+
+/** 生效保护臂单项（risk-status.protection_arms 值） */
+export interface ProtectionArm {
+  enabled: boolean;
+  mode: string;
+  cap_pct?: number;
+}
+
+/** /api/dashboard/risk-status */
+export interface TraderRiskStatus {
+  global_halt: boolean;
+  global_halt_remaining_min: number;
+  coin_circuits: Record<string, unknown>;
+  armed_coins: number;
+  drawdown: unknown;
+  mode: string | null;
+  daily_pnl: number | null;
+  daily_loss_limit: number | null;
+  kill_armed: boolean;
+  open_positions: number;
+  feed_status: 'live' | 'stale' | 'offline';
+  feed_age_s: number | null;
+  risk_blind: boolean;
+  blind_gates: string[];
+  market_circuit: Record<string, unknown>;
+  protection_arms: Partial<Record<'sizing_v2' | 'trend_filter' | 'daily_extension_cap', ProtectionArm>>;
+  ts: number;
+}
+
+/** /api/dashboard/config-parity */
+export interface ConfigParityItem {
+  leaf: string;
+  canonical: unknown;
+  live: unknown;
+}
+
+export interface ConfigParity {
+  dangerous_count: number;
+  items: ConfigParityItem[];
+  ts: number;
+}

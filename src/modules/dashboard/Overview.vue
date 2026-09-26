@@ -15,6 +15,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components';
 import { useToast } from '@/stores/toast';
 import { useSseFeedStore } from '@/stores/sseFeed';
 import { useRiskCardsStore } from '@/stores/riskCards';
+import type { TraderSummary } from '@/shared/types';
 import RiskStatusCard from './components/RiskStatusCard.vue';
 import LiquidationAlertCard from './components/LiquidationAlertCard.vue';
 import FeedMonitorCard from './components/FeedMonitorCard.vue';
@@ -25,7 +26,7 @@ const toast = useToast();
 
 const loading = ref(true);
 const error = ref('');
-const summary = ref<any>(null);
+const summary = ref<TraderSummary | null>(null);
 const closedTrades = ref<any[]>([]);
 const equityOption = shallowRef<any>({});
 let timer: number | null = null;
@@ -52,7 +53,7 @@ async function fetchAll() {
   try {
     error.value = '';
     const [s, eq, t] = await Promise.all([
-      http.get('/api/portal/trader/api/dashboard/summary'),
+      http.get<TraderSummary>('/api/portal/trader/api/dashboard/summary'),
       http.get('/api/portal/trader/api/dashboard/equity-curve'),
       http.get('/api/portal/trader/api/dashboard/closed-trades'),
     ]);

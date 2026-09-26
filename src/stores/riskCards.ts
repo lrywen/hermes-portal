@@ -14,12 +14,13 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import http from '@/shared/api/client';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import type { TraderPosition, TraderRiskStatus } from '@/shared/types';
 
 const POLL_MS = 5000;
 
 export const useRiskCardsStore = defineStore('riskCards', () => {
-  const riskStatus = ref<any>(null);
-  const positions = ref<any[]>([]);
+  const riskStatus = ref<TraderRiskStatus | null>(null);
+  const positions = ref<TraderPosition[]>([]);
   const lastError = ref('');
   const lastHeartbeatTs = ref(0);
 
@@ -29,7 +30,7 @@ export const useRiskCardsStore = defineStore('riskCards', () => {
 
   async function fetchRisk() {
     try {
-      const { data } = await http.get('/api/portal/trader/api/dashboard/risk-status');
+      const { data } = await http.get<TraderRiskStatus>('/api/portal/trader/api/dashboard/risk-status');
       riskStatus.value = data;
     } catch (e: any) {
       // 风控端点降级时保留上一次数据，仅记录错误（卡片不显示错误边界）
@@ -39,7 +40,9 @@ export const useRiskCardsStore = defineStore('riskCards', () => {
 
   async function fetchPositions() {
     try {
-      const { data } = await http.get('/api/portal/trader/api/dashboard/positions');
+      const { data } = await http.get<TraderPosition[] | { positions: TraderPosition[] }>(
+        '/api/portal/trader/api/dashboard/positions',
+      );
       positions.value = Array.isArray(data) ? data : (data?.positions || []);
     } catch (e: any) {
       lastError.value = e?.response?.data?.detail || e?.message || 'positions 拉取失败';

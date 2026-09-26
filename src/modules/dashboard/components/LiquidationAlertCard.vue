@@ -22,6 +22,7 @@ interface LiqRow {
 const rows = computed<LiqRow[]>(() => {
   const out: LiqRow[] = [];
   for (const p of risk.positions) {
+    if (p.liq_px == null) continue;
     const dist = liqDistPct(p);
     if (dist == null) continue;
     out.push({ coin: p.coin, side: p.side, mark: p.mark_px, liq: p.liq_px, distPct: dist });
