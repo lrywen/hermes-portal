@@ -69,9 +69,15 @@ async function load() {
 }
 
 async function control(action: 'start' | 'stop') {
+  // 停止会同时中断自动交易与风控监控，后端红线要求显式 X-Confirm-Stop 头
+  if (action === 'stop') {
+    const ok = window.confirm('停止智能体会同时中断自动交易与风控监控，确定停止吗？');
+    if (!ok) return;
+  }
   busy.value = true;
   try {
-    await http.post(`/api/portal/trader/api/agent/${action}`);
+    const headers = action === 'stop' ? { 'X-Confirm-Stop': 'confirm' } : undefined;
+    await http.post(`/api/portal/trader/api/agent/${action}`, {}, { headers });
     toast.ok(`智能体${action === 'start' ? '已启动' : '已停止'}`);
     await load();
   } catch (e: any) {

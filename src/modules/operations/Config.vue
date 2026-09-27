@@ -397,7 +397,13 @@ async function save() {
     // 同步顶栏运行模式徽标（mode 可能被本次修改）
     portalStore.loadMode();
   } catch (e: any) {
-    toast.err(e?.response?.data?.detail || '保存失败');
+    // 配置校验失败：后端 422 detail 为 { errors: string[] }，逐条展示
+    const errs: unknown = e?.response?.data?.detail?.errors;
+    if (Array.isArray(errs) && errs.length) {
+      toast.err(`配置校验未通过：${errs.join('；')}`);
+    } else {
+      toast.err(e?.response?.data?.detail || '保存失败');
+    }
   } finally {
     saving.value = false;
   }

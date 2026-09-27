@@ -26,6 +26,7 @@ const loading = ref(false);
 const error = ref('');
 const orderbook = ref<any>(null);
 const price = ref<any>(null);
+const priceStats = ref<{ high: number; low: number; volume: number } | null>(null);
 const candleOption = shallowRef<any>({});
 
 async function loadCandle() {
@@ -36,6 +37,15 @@ async function loadCandle() {
       params: { coin: coin.value, interval: interval.value, limit: 200 },
     });
     const rows = Array.isArray(data) ? data : data?.candles || [];
+    // 从已加载的 K 线派生最新一根的 高/低/成交量（/api/hl/price 只返回 mid）
+    if (rows.length) {
+      const last = rows[rows.length - 1];
+      priceStats.value = {
+        high: Number(last.h ?? last.high),
+        low: Number(last.l ?? last.low),
+        volume: Number(last.v ?? last.volume),
+      };
+    }
     const categoryData = rows.map((r: any) => r.t ? new Date(r.t).toLocaleDateString() : r.time);
     const values = rows.map((r: any) => [r.o ?? r.open, r.c ?? r.close, r.l ?? r.low, r.h ?? r.high]);
     const volumes = rows.map((r: any) => ({
@@ -287,15 +297,15 @@ onUnmounted(() => { if (equityTimer) window.clearInterval(equityTimer); });
         </div>
         <div class="card">
           <div class="text-xs text-[var(--text-muted)]">24h 最高</div>
-          <div class="text-2xl font-semibold mt-1 text-emerald-400">${{ price?.high ?? '—' }}</div>
+          <div class="text-2xl font-semibold mt-1 text-emerald-400">${{ priceStats?.high ?? '—' }}</div>
         </div>
         <div class="card">
           <div class="text-xs text-[var(--text-muted)]">24h 最低</div>
-          <div class="text-2xl font-semibold mt-1 text-rose-400">${{ price?.low ?? '—' }}</div>
+          <div class="text-2xl font-semibold mt-1 text-rose-400">${{ priceStats?.low ?? '—' }}</div>
         </div>
         <div class="card">
           <div class="text-xs text-[var(--text-muted)]">24h 成交量</div>
-          <div class="text-2xl font-semibold mt-1">{{ price?.volume ?? '—' }}</div>
+          <div class="text-2xl font-semibold mt-1">{{ priceStats?.volume ?? '—' }}</div>
         </div>
       </div>
 

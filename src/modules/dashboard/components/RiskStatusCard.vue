@@ -59,6 +59,13 @@ const coinEntries = computed(() => {
     .sort((a, b) => b.min - a.min);
 });
 
+// 市场级断路器实时态（market_circuit.available=false 时不展示）
+const marketCircuit = computed<{ stateLabel: string; tripped: boolean; action: string } | null>(() => {
+  const mc = rs.value?.market_circuit as Record<string, any> | undefined;
+  if (!mc?.available) return null;
+  return { stateLabel: String(mc.state_label ?? 'unknown'), tripped: Boolean(mc.tripped), action: String(mc.action ?? '') };
+});
+
 // 距日亏硬闸的余量：当日盈亏 - 限额（亏损日 pnl 为负、limit 为负）
 const lossHeadroom = computed<number | null>(() => {
   const r = rs.value;
@@ -119,6 +126,18 @@ function fmtUsd(v: any): string {
         </span>
       </div>
 
+      <!-- 风控盲跑横幅：熔断器状态读取失败、保护 fail-open 放行中（高危，需手动关注） -->
+      <div
+        v-if="rs.risk_blind"
+        class="rounded-lg px-3 py-2.5 text-xs font-semibold"
+        style="background:rgba(239,68,68,.15);color:#fca5a5;line-height:1.5"
+      >
+        风控保护盲跑中：断路器状态无法读取，闸门 fail-open 放行、下列保护可能未生效
+        <span v-if="rs.blind_gates?.length" class="block mt-1 font-mono text-[11px]">
+          {{ rs.blind_gates.join('、') }}
+        </span>
+      </div>
+
       <!-- 运行模式 -->
       <div class="flex items-center justify-between">
         <span class="text-sm text-[var(--muted)]">运行模式</span>
@@ -169,6 +188,17 @@ function fmtUsd(v: any): string {
         权益 ${{ Number(dd.equity).toFixed(2) }} ·
         阈值 {{ Number(dd.threshold_pct).toFixed(0) }}%<template v-if="Number(dd.cooldown_remaining_min) > 0"> ·
         冷却恢复剩余 {{ fmtDur(dd.cooldown_remaining_min) }}</template>
+      </div>
+
+      <!-- 市场级断路器 -->
+      <div v-if="marketCircuit" class="flex items-center justify-between border-t border-[var(--border)] pt-2.5">
+        <span class="text-sm text-[var(--muted)]">市场断路器</span>
+        <span
+          class="text-xs px-2 py-0.5 rounded-full font-semibold"
+          :class="marketCircuit.tripped ? 'badge-danger' : 'badge-ok'"
+        >
+          {{ marketCircuit.stateLabel }}<template v-if="marketCircuit.action"> · {{ marketCircuit.action }}</template>
+        </span>
       </div>
 
       <!-- 单币熔断 -->
