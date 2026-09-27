@@ -12,14 +12,15 @@
  */
 import { computed } from 'vue';
 import { useRiskCardsStore } from '@/stores/riskCards';
+import type { DrawdownSnapshot, TraderRiskStatus } from '@/shared/types';
 
 const risk = useRiskCardsStore();
-const rs = computed<any>(() => risk.riskStatus);
+const rs = computed<TraderRiskStatus | null>(() => risk.riskStatus);
 
 type Level = 'danger' | 'warn' | 'safe' | 'unknown';
 
 // 回撤闸门实时态（/api/dashboard/risk-status 的 drawdown 字段，null=后端不可用）
-const dd = computed<any>(() => rs.value?.drawdown ?? null);
+const dd = computed<DrawdownSnapshot | null>(() => rs.value?.drawdown ?? null);
 
 const overall = computed<Level>(() => {
   const r = rs.value;

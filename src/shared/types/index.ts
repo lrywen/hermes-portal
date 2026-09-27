@@ -127,7 +127,7 @@ export interface TraderRiskStatus {
   global_halt_remaining_min: number;
   coin_circuits: Record<string, unknown>;
   armed_coins: number;
-  drawdown: unknown;
+  drawdown: DrawdownSnapshot | null;
   mode: string | null;
   daily_pnl: number | null;
   daily_loss_limit: number | null;
@@ -153,4 +153,21 @@ export interface ConfigParity {
   dangerous_count: number;
   items: ConfigParityItem[];
   ts: number;
+}
+
+/** risk-status.drawdown —— 滚动峰值/回撤冷却快照（memory.drawdown_snapshot） */
+export interface DrawdownSnapshot {
+  frozen: boolean;
+  dd_pct: number;
+  threshold_pct: number;
+  peak_equity: number;
+  all_time_peak_equity: number;
+  equity: number;
+  window_days: number;
+  frozen_since_ms: number;
+  frozen_for_min: number;
+  cooldown_hours: number;
+  cooldown_remaining_min: number;
+  last_baseline_ms: number;
+  trail_samples: number;
 }

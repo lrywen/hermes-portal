@@ -12,6 +12,7 @@ import { useToast } from '@/stores/toast';
 import { useConfirmStore } from '@/stores/confirm';
 import { useSseFeedStore } from '@/stores/sseFeed';
 import { liqDistPct, liqLevel } from '@/shared/utils/liquidation';
+import type { DslTrackerInfo, TraderPosition } from '@/shared/types';
 
 const auth = useAuthStore();
 const toast = useToast();
@@ -20,7 +21,7 @@ const confirmStore = useConfirmStore();
 const loading = ref(true);
 const error = ref('');
 const stale = ref(false);
-const positions = ref<any[]>([]);
+const positions = ref<TraderPosition[]>([]);
 const closing = ref<string | null>(null);
 let timer: number | null = null;
 let sseUnsub: (() => void) | null = null;
@@ -42,17 +43,19 @@ function scheduleRefresh() {
 async function load() {
   try {
     error.value = '';
-    const res = await http.get('/api/portal/trader/api/dashboard/positions');
+    const res = await http.get<TraderPosition[] | { positions: TraderPosition[] }>(
+      '/api/portal/trader/api/dashboard/positions',
+    );
     // 服务端 stale-if-error 兜底生效时携带 X-Positions-Stale，标记数据为缓存快照
     stale.value = res.headers?.['x-positions-stale'] === '1';
     const data = res.data;
-    const incoming: any[] = Array.isArray(data) ? data : (data?.positions || []);
+    const incoming: TraderPosition[] = Array.isArray(data) ? data : (data?.positions || []);
     // 按 coin 做浅 diff：未变化的行保留原对象引用，避免 Vue 整表重渲染
     const prev = new Map(positions.value.map((p) => [p.coin, p]));
     positions.value = incoming.map((np) => {
       const old = prev.get(np.coin);
       if (!old) return np;
-      const keys = Object.keys(np);
+      const keys = Object.keys(np) as (keyof TraderPosition)[];
       let changed = keys.length !== Object.keys(old).length;
       if (!changed) {
         for (const k of keys) {
@@ -104,7 +107,7 @@ function pnlColor(v: number | undefined | null) {
 }
 
 // 距强平距离着色（与强平价预警卡片同一阈值）：<10% 红、<20% 琥珀，其余常态
-function liqDistColor(p: any) {
+function liqDistColor(p: TraderPosition) {
   const lv = liqLevel(liqDistPct(p));
   if (lv === 'danger') return 'text-rose-400';
   if (lv === 'warn') return 'text-amber-400';
@@ -116,11 +119,11 @@ const totalUPnL = computed(() => positions.value.reduce((s, p) => s + (Number(p.
 const longCount = computed(() => positions.value.filter((p) => p.side === 'long').length);
 const shortCount = computed(() => positions.value.filter((p) => p.side === 'short').length);
 
-function dslBadgeClass(dsl: any) {
+function dslBadgeClass(dsl: DslTrackerInfo | null) {
   if (!dsl) return '';
   return dsl.phase === 'phase2' ? 'badge-ok' : 'badge-warn';
 }
-function dslLabel(dsl: any) {
+function dslLabel(dsl: DslTrackerInfo | null) {
   if (!dsl) return '—';
   return dsl.phase === 'phase2' ? '阶段2' : '阶段1';
 }
