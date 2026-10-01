@@ -660,10 +660,12 @@ onMounted(() => {
                 :value="JSON.stringify(config[key], null, 2)"
                 @input="(e) => { try { config[key] = JSON.parse((e.target as HTMLTextAreaElement).value); objectError[key] = false; } catch { objectError[key] = true; } }"
               ></textarea>
-              <p v-if="objectError[key]" class="text-[11px] text-rose-400 mt-1">JSON 格式错误，已暂不更新该值</p>
 
               <!-- 字符串 -->
               <input v-else class="input w-full mt-1" v-model="config[key]" />
+
+              <!-- 对象 JSON 错误提示：置于 v-else 之后，避免打断 v-if/v-else 链 -->
+              <p v-if="objectError[key]" class="text-[11px] text-rose-400 mt-1">JSON 格式错误，已暂不更新该值</p>
             </div>
           </div>
         </div>

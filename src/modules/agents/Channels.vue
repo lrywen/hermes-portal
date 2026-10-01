@@ -10,9 +10,14 @@ import { storeToRefs } from 'pinia';
 import http from '@/shared/api/client';
 import { useToast } from '@/stores/toast';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import { useAuthStore } from '@/stores/auth';
 
 const toast = useToast();
 const sseFeed = useSseFeedStore();
+const auth = useAuthStore();
+// 扫描模式/币种名单/HIP-3 名单写入需 config:write；viewer/trader 仅有
+// channels:read，门控避免其「可点必 403」。
+const canWriteConfig = computed(() => auth.hasPermission('config:write'));
 // 连接状态直接来自全局 SSE store（storeToRefs 保持响应性）
 const { connected, reconnecting } = storeToRefs(sseFeed);
 
@@ -528,8 +533,15 @@ onUnmounted(() => {
 
     <!-- 扫描过滤（紧凑卡）：币种名单=开仓风控层；HIP-3 场馆名单=扫描聚合层 -->
     <div class="card !py-2 space-y-1.5" title="币种名单：下单前风控 gate 生效（黑名单必拦、白名单非空则只放行名单内），不缩小扫描范围；HIP-3 场馆名单：被排除场馆在选币前即剔除，不扫描、不产生事件，主 DEX 加密市场不受影响。均热生效、与系统配置同源。">
+      <!-- 无 config:write 权限（viewer/trader）时整区只读，避免可点必 403 -->
+      <p v-if="!canWriteConfig" class="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
+        当前角色仅有只读权限（channels:read），名单修改需 config:write，请使用 operator/admin 账号操作。
+      </p>
       <!-- 币种过滤（开仓风控层） -->
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <div
+        class="flex flex-wrap items-center gap-x-2 gap-y-1"
+        :class="canWriteConfig ? '' : 'pointer-events-none opacity-50'"
+      >
         <span class="text-[11px] text-[var(--text-muted)] font-medium whitespace-nowrap">币种</span>
         <div class="flex rounded-md border border-[var(--border)] overflow-hidden">
           <button
@@ -575,7 +587,7 @@ onUnmounted(() => {
       <!-- HIP-3 场馆过滤（扫描聚合层；enable_hip3=false 时整层不生效） -->
       <div
         class="flex flex-wrap items-center gap-x-2 gap-y-1"
-        :class="hip3Enabled ? '' : 'opacity-50'"
+        :class="[hip3Enabled ? '' : 'opacity-50', canWriteConfig ? '' : 'pointer-events-none']"
       >
         <span class="text-[11px] text-[var(--text-muted)] font-medium whitespace-nowrap">HIP-3 场馆</span>
         <span

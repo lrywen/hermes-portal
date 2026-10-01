@@ -47,8 +47,14 @@ const modeLabel = computed(() => {
 const winRate = computed(() => {
   const wr = state.value?.win_rate;
   if (!wr) return null;
-  const total = (wr.wins || 0) + (wr.losses || 0);
-  return total ? { ...wr, total, pct: (wr.wins / total) * 100 } : null;
+  // 后端 get_win_rate 返回 {wins, total, rate}，不返回 losses；
+  // 以 total 为准，losses 由 total - wins 推导，避免负场恒 0、胜率虚高。
+  const total = wr.total ?? 0;
+  if (!total) return null;
+  const wins = wr.wins ?? 0;
+  const losses = Math.max(0, total - wins);
+  const pct = (wr.rate ?? (wins / total)) * 100;
+  return { ...wr, total, wins, losses, pct };
 });
 
 async function load() {

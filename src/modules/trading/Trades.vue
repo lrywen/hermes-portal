@@ -21,7 +21,7 @@ const trades = ref<any[]>([]);
 const limit = ref(100);
 const filterCoin = ref('');
 const kindFilter = ref<'all' | 'open' | 'close'>('all');
-const sourceFilter = ref<'all' | 'dsl' | 'manual' | 'external' | 'reconcile' | 'ai'>('all');
+const sourceFilter = ref<'all' | 'dsl' | 'dsl_outcome' | 'manual' | 'external' | 'reconcile' | 'ai' | 'userfills_backfill'>('all');
 const sideFilter = ref<'all' | 'long' | 'short'>('all');
 const outcomeFilter = ref<'all' | 'win' | 'loss'>('all');
 const page = ref(1);
@@ -186,10 +186,12 @@ function pnlSourceText(s: string) {
 const SOURCE_LABELS: Record<string, string> = {
   all: '全部',
   dsl: 'DSL',
+  dsl_outcome: 'DSL 平仓',
   manual: '手动',
   external: '外部',
   reconcile: '对账',
   ai: 'AI',
+  userfills_backfill: '成交回填',
 };
 function sourceLabel(s: string) {
   return SOURCE_LABELS[s] || s;
@@ -308,7 +310,7 @@ onUnmounted(() => {
         @click="kindFilter = s">{{ s === 'all' ? '全部' : s === 'open' ? '开仓' : '平仓' }}</button>
       <span class="text-[var(--border)] mx-1">|</span>
       <span class="text-[var(--text-muted)] text-xs">来源：</span>
-      <button v-for="s in (['all','dsl','manual','external','reconcile','ai'] as const)" :key="'src-'+s"
+      <button v-for="s in (['all','dsl','dsl_outcome','manual','external','reconcile','ai','userfills_backfill'] as const)" :key="'src-'+s"
         class="px-3 py-1 rounded-full text-xs border transition-colors"
         :class="sourceFilter === s ? 'bg-violet-500/15 text-violet-300 border-violet-500/40' : 'text-[var(--text-muted)] border-[var(--border)] hover:bg-[var(--surface-hover)]'"
         @click="sourceFilter = s">{{ sourceLabel(s) }}</button>

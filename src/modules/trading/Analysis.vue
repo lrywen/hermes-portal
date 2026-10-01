@@ -34,7 +34,7 @@ async function loadCandle() {
   error.value = '';
   try {
     const { data } = await http.get('/api/portal/trader/api/hl/candles', {
-      params: { coin: coin.value, interval: interval.value, limit: 200 },
+      params: { coin: coin.value, interval: interval.value, count: 200 },
     });
     const rows = Array.isArray(data) ? data : data?.candles || [];
     // 从已加载的 K 线派生最新一根的 高/低/成交量（/api/hl/price 只返回 mid）
@@ -318,7 +318,7 @@ onUnmounted(() => { if (equityTimer) window.clearInterval(equityTimer); });
           <h3 class="font-semibold mb-3 text-rose-400">卖盘 Asks</h3>
           <div class="space-y-1 text-xs font-mono">
             <div v-for="(level, i) in (orderbook.asks || []).slice(0, 10)" :key="'a'+i" class="flex justify-between">
-              <span class="text-rose-400">{{ level[0] }}</span><span>{{ level[1] }}</span>
+              <span class="text-rose-400">{{ level.px }}</span><span>{{ level.sz }}</span>
             </div>
           </div>
         </div>
@@ -326,7 +326,7 @@ onUnmounted(() => { if (equityTimer) window.clearInterval(equityTimer); });
           <h3 class="font-semibold mb-3 text-emerald-400">买盘 Bids</h3>
           <div class="space-y-1 text-xs font-mono">
             <div v-for="(level, i) in (orderbook.bids || []).slice(0, 10)" :key="'b'+i" class="flex justify-between">
-              <span class="text-emerald-400">{{ level[0] }}</span><span>{{ level[1] }}</span>
+              <span class="text-emerald-400">{{ level.px }}</span><span>{{ level.sz }}</span>
             </div>
           </div>
         </div>
