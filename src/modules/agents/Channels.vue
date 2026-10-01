@@ -24,6 +24,8 @@ const { connected, reconnecting } = storeToRefs(sseFeed);
 const events = ref<any[]>([]);
 const selectedTypes = ref<Set<string>>(new Set());
 const search = ref('');
+// 时间窗口（秒）；0 = 不限。快捷按钮设置最近 1 小时 / 6 小时 / 24 小时。
+const timeWindowS = ref(0);
 const paused = ref(false);
 const selectedEvent = ref<any>(null);
 
@@ -113,6 +115,7 @@ const FIELD_LABELS: Record<string, string> = {
   entry_px: '开仓价', fill_px: '成交价', fees: '手续费', fees_pct: '手续费%',
   spot_pct: '价格涨跌%', size: '仓位', mkt_price: '市场价', note: '备注',
   action: '动作', symbol: '标的', strategy: '策略', ts_ms: '时间戳',
+  scope: '来源',
   // (supplemental audit 2026-09-02) scan 事件补「扫描耗时」；start_ts_ms 为
   // 扫描开始时刻(epoch ms)，已用于时间列显示，详情里不重复原始数字故跳过。
   scan_duration_ms: '扫描耗时',
@@ -133,6 +136,10 @@ const filtered = computed(() => {
   let list = events.value;
   if (selectedTypes.value.size > 0) {
     list = list.filter((e) => selectedTypes.value.has(e.event));
+  }
+  if (timeWindowS.value > 0) {
+    const cutoff = Date.now() - timeWindowS.value * 1000;
+    list = list.filter((e) => evMs(e) >= cutoff);
   }
   const q = search.value.trim().toLowerCase();
   if (q) {
@@ -159,7 +166,7 @@ function onListScroll(e: Event) {
 }
 
 // 搜索/筛选条件变化时，重置可见数量，避免新筛选结果下仍挂载大量旧节点
-watch([search, selectedTypes], () => {
+watch([search, selectedTypes, timeWindowS], () => {
   renderCount.value = RENDER_LIMIT;
 });
 
@@ -168,6 +175,17 @@ function toggleType(t: string) {
   if (s.has(t)) s.delete(t);
   else s.add(t);
   selectedTypes.value = s;
+}
+
+// 时间窗口快捷选项；再点当前项可取消（回到不限）
+const timeRanges = [
+  { key: 3600, label: '最近 1 小时' },
+  { key: 21600, label: '最近 6 小时' },
+  { key: 86400, label: '最近 24 小时' },
+] as const;
+
+function toggleTimeRange(s: number) {
+  timeWindowS.value = timeWindowS.value === s ? 0 : s;
 }
 
 // 事件唯一键：优先用服务端 ts+event+coin 组合，保证 SSE 回放与历史接口去重
@@ -320,6 +338,11 @@ function evDateTime(ev: any): string {
 }
 
 function evSummary(ev: any): string {
+  // error 事件：把内部 scope/error 串翻译成可读中文，而不是只显示干瘪的 "error"
+  if (ev.event === 'error') {
+    const human = humanError(ev);
+    if (human) return human;
+  }
   const parts: string[] = [];
   if (ev.coin) parts.push(String(ev.coin));
   if (ev.side) parts.push(SIDE_LABELS[ev.side] || String(ev.side));
@@ -332,6 +355,43 @@ function evSummary(ev: any): string {
   if (ev.triggers !== undefined) parts.push(`${ev.triggers} 个触发`);
   if (ev.executed !== undefined) parts.push(ev.executed ? '已执行' : '未执行');
   return parts.length ? parts.join(' · ') : (ev.event || 'event');
+}
+
+// 把 error 事件的内部字段（scope + error 文本）翻译成中文可读说明。
+// 覆盖自愈看门狗与并行取数失败两类常见来源；未识别的原文保留，便于排查。
+function humanError(ev: any): string {
+  const raw = String(ev.error || ev.reason || ev.msg || ev.message || '').trim();
+  const scope = String(ev.scope || '').trim();
+
+  if (scope === 'watchdog') {
+    const m = raw.match(/hung\s*(\d+)s/i);
+    const mins = m ? Math.round(Number(m[1]) / 60) : null;
+    const coin = ev.coin ? `${String(ev.coin)} · ` : '';
+    const dur = mins !== null ? `约 ${mins} 分钟` : '较长时间';
+    return `${coin}回路${dur}无进展，已自动重启（看门狗自愈）`;
+  }
+
+  // 并行取数超时：parallel data-fetch for X failed/timed out (candles-1h ...)
+  const fetchM = raw.match(/parallel data-fetch for (\S+) failed\/timed out(?:\s*\((.*)\))?/i);
+  if (fetchM) {
+    const why = fetchM[2] ? translateFetchCause(fetchM[2]) : '数据源超时';
+    return `${fetchM[1]} · 行情取数失败（${why}），本轮跳过`;
+  }
+
+  if (raw) {
+    return ev.coin ? `${String(ev.coin)} · ${raw}` : raw;
+  }
+  return ev.coin ? String(ev.coin) : '';
+}
+
+// 翻译取数失败括号里的细分原因
+function translateFetchCause(cause: string): string {
+  const c = cause.toLowerCase();
+  if (c.includes('candles')) return 'K线数据超时';
+  if (c.includes('funding')) return '资金费率超时';
+  if (c.includes('l2book') || c.includes('orderbook')) return '盘口数据超时';
+  if (c.includes('timed out')) return '数据源超时';
+  return cause;
 }
 
 function evDetailRows(ev: any): Array<[string, string]> {
@@ -646,6 +706,16 @@ onUnmounted(() => {
             : 'bg-white/5 text-[var(--text-muted)] group-hover:bg-white/10'"
         >{{ counts.get(t.key) }}</span>
       </button>
+      <span class="w-px h-4 bg-[var(--border)] mx-1"></span>
+      <button
+        v-for="r in timeRanges"
+        :key="r.key"
+        class="px-2.5 py-1 text-xs rounded-full border transition-all duration-150 active:scale-95"
+        :class="timeWindowS === r.key
+          ? 'text-sky-200 bg-sky-500/20 border-sky-400/40 ring-1 ring-white/25 font-medium'
+          : 'text-[var(--text-muted)] border-[var(--border)] hover:bg-white/5 hover:text-[var(--text)]'"
+        @click="toggleTimeRange(r.key)"
+      >{{ r.label }}</button>
       <input
         v-model="search"
         placeholder="搜索 coin / reason / msg ..."
