@@ -126,6 +126,9 @@ const collectingArms = computed(() =>
 // D-6：无成熟样本·不评价（INERT）——此前前端无此桶，导致该臂虽在表中却不进
 // 任何汇总卡（明细计数与各档之和对不上）。
 const inertArms = computed(() => arms.value.filter((a) => a.verdict === 'INERT'));
+// D-7：无持仓·待触发（DORMANT_NO_POSITIONS）——持仓事件驱动臂在 0 持仓时的
+// 设计性空窗，非采数缺口；单独成桶，避免被计入「请立即排查」。
+const dormantArms = computed(() => arms.value.filter((a) => a.verdict === 'DORMANT_NO_POSITIONS'));
 const offArms = computed(() => arms.value.filter((a) => a.verdict === 'OFF'));
 // M13：采数停滞（近 24h 0 写入）
 const stalledArms = computed(() => arms.value.filter((a) => a.collection_stalled));
@@ -154,6 +157,7 @@ const VERDICT_BADGE: Record<string, string> = {
   INSUFFICIENT_DATA: 'badge-muted',
   COLLECTING: 'badge-muted',
   INERT: 'badge-muted',
+  DORMANT_NO_POSITIONS: 'badge-muted',
   OFF: 'badge-muted',
 };
 function verdictBadge(v: string) {
@@ -569,7 +573,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 评级汇总 -->
-      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3">
         <div class="card"><div class="text-xs text-[var(--text-muted)]">采数缺口（门变盲）</div><div class="text-lg font-semibold mt-1 text-rose-400">{{ gapArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">enforce 降级复核</div><div class="text-lg font-semibold mt-1 text-orange-400">{{ degradedArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">建议复核（疑似误伤）</div><div class="text-lg font-semibold mt-1 text-amber-300">{{ reviewArms.length }}</div></div>
@@ -577,6 +581,7 @@ onUnmounted(() => {
         <div class="card"><div class="text-xs text-[var(--text-muted)]">enforce 维持</div><div class="text-lg font-semibold mt-1 text-emerald-300">{{ maintainArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">采集中</div><div class="text-lg font-semibold mt-1">{{ collectingArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">无成熟样本·不评价</div><div class="text-lg font-semibold mt-1 text-[var(--text-muted)]">{{ inertArms.length }}</div></div>
+        <div class="card"><div class="text-xs text-[var(--text-muted)]">无持仓·待触发</div><div class="text-lg font-semibold mt-1 text-[var(--text-muted)]">{{ dormantArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">已关闭（off）</div><div class="text-lg font-semibold mt-1 text-[var(--text-muted)]">{{ offArms.length }}</div></div>
       </div>
 
