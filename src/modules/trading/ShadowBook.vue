@@ -15,6 +15,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/stores/toast';
 import { useConfirmStore } from '@/stores/confirm';
 import { useSseFeedStore } from '@/stores/sseFeed';
+import type { ShadowPosition } from '@/shared/types';
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
@@ -182,8 +183,8 @@ function buildChart() {
 }
 
 // ---------------------------------------------------------------- derived
-const positions = computed<any[]>(() => account.value?.positions || []);
-const makerPositions = computed<any[]>(() => account.value?.maker_positions || []);
+const positions = computed<ShadowPosition[]>(() => account.value?.positions || []);
+const makerPositions = computed<ShadowPosition[]>(() => account.value?.maker_positions || []);
 const makerResting = computed<any[]>(() => account.value?.maker_resting_orders || []);
 const makerStats = computed<any>(() => stats.value?.maker_shadow || null);
 const adverseSelection = computed<any>(() => makerStats.value?.adverse_selection || null);

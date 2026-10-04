@@ -82,12 +82,9 @@ export interface TraderSummary {
   available: number;
   dex_equity: Record<string, number>;
   dex_available: Record<string, number>;
-  spot_usdc: number;
   daily_pnl: number;
   daily_pnl_pct: number;
   open_positions: number;
-  last_tick_age_s: number | null;
-  last_scan_triggers: number;
   status: string;
   ts: number;
 }
@@ -112,6 +109,26 @@ export interface TraderPosition {
   spot_pct: number;
   dsl: DslTrackerInfo | null;
   liq_px: number | null;
+}
+
+/**
+ * 影子账户持仓 /api/dashboard/shadow/account 的 positions 元素。
+ * 注意与实盘 TraderPosition 命名不同：影子侧用 size_usd/size_coin、
+ * unrealized_pct（现货口径）与 unrealized_roe_pct（杠杆口径）并存，opened_at 为持仓起点。
+ */
+export interface ShadowPosition {
+  id: string;
+  coin: string;
+  side: 'long' | 'short';
+  size_usd: number;
+  size_coin: number;
+  leverage: number;
+  entry_px: number;
+  mark_px: number;
+  unrealized_pct: number;
+  unrealized_roe_pct: number;
+  unrealized_pnl_usd: number;
+  opened_at: number | string;
 }
 
 /** 生效保护臂单项（risk-status.protection_arms 值） */
@@ -161,13 +178,8 @@ export interface DrawdownSnapshot {
   dd_pct: number;
   threshold_pct: number;
   peak_equity: number;
-  all_time_peak_equity: number;
   equity: number;
   window_days: number;
-  frozen_since_ms: number;
   frozen_for_min: number;
-  cooldown_hours: number;
   cooldown_remaining_min: number;
-  last_baseline_ms: number;
-  trail_samples: number;
 }

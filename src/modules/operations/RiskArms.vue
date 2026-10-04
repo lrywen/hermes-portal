@@ -2,7 +2,7 @@
 /**
  * 影子臂评级中心（M3，Audit 2026-09-07）
  * - 数据来源：hermes-trader /api/dashboard/shadow-arms/*（经 BFF 代理，operator:mode）
- * - 展示：12 条风控臂的夜间评级（mode/verdict/三窗命中统计/成熟度）、真实成交基线、
+ * - 展示：风控臂的夜间评级（mode/verdict/三窗命中统计/成熟度）、真实成交基线、
  *   每晚评级历史快照
  * - INERT 红线：本页只读。评级器只评级 + 飞书建议，绝不自动改配置/闸门/下单；
  *   PROMOTE_CANDIDATE 仅为建议，「去升级」只跳转 /config 由人工走 config_store 权威写。
@@ -65,10 +65,10 @@ function scheduleRefresh() {
 }
 
 // ---------------------------------------------------------------- data
-async function loadAll(showLoading = true) {
+async function loadAll(showLoading = true, isRetry = false) {
+  error.value = '';
+  if (showLoading) loading.value = true;
   try {
-    error.value = '';
-    if (showLoading) loading.value = true;
     const [g, h, dab, rf] = await Promise.all([
       http.get(`${API}/grades`, { params: { windows: WINDOWS } }),
       // M9：趋势只看夜间 cron 快照，手动重评/手工追加（source=manual）不污染趋势
@@ -83,6 +83,11 @@ async function loadAll(showLoading = true) {
     reflections.value = Array.isArray(rf?.data?.reflections) ? rf.data.reflections : [];
     buildCharts();
   } catch (e: any) {
+    // SWR 冷启动：grader 后台预热中会返回 503，短暂等待后自动重试一次，避免重启后误报红卡
+    if (!isRetry && e?.response?.status === 503) {
+      window.setTimeout(() => loadAll(false, true), 3000);
+      return;
+    }
     error.value = e?.response?.data?.detail || '加载影子臂评级失败';
   } finally {
     loading.value = false;
@@ -118,6 +123,9 @@ const maintainArms = computed(() => arms.value.filter((a) => a.verdict === 'ENFO
 const collectingArms = computed(() =>
   arms.value.filter((a) => a.verdict === 'INSUFFICIENT_DATA' || a.verdict === 'COLLECTING'),
 );
+// D-6：无成熟样本·不评价（INERT）——此前前端无此桶，导致该臂虽在表中却不进
+// 任何汇总卡（明细计数与各档之和对不上）。
+const inertArms = computed(() => arms.value.filter((a) => a.verdict === 'INERT'));
 const offArms = computed(() => arms.value.filter((a) => a.verdict === 'OFF'));
 // M13：采数停滞（近 24h 0 写入）
 const stalledArms = computed(() => arms.value.filter((a) => a.collection_stalled));
@@ -145,6 +153,7 @@ const VERDICT_BADGE: Record<string, string> = {
   ENFORCE_MAINTAIN: 'badge-ok',
   INSUFFICIENT_DATA: 'badge-muted',
   COLLECTING: 'badge-muted',
+  INERT: 'badge-muted',
   OFF: 'badge-muted',
 };
 function verdictBadge(v: string) {
@@ -327,6 +336,7 @@ function buildCharts() {
     ['PROMOTE_CANDIDATE', '可升级', '#10B981'],
     ['ENFORCE_MAINTAIN', 'enforce维持', '#34D399'],
     ['COLLECTING', '采集中', '#818CF8'],
+    ['INERT', '无成熟样本', '#9CA3AF'],
     ['OFF', '已关闭', '#64748B'],
   ];
   verdictOption.value = {
@@ -409,7 +419,7 @@ onUnmounted(() => {
           <span class="badge badge-muted">只读 · 建议</span>
         </h2>
         <p class="text-sm text-[var(--text-muted)] mt-1">
-          夜间评级器对 12 条风控臂的采数/命中/回填反事实评级 · 30s 自动刷新
+          夜间评级器对 {{ arms.length }} 条风控臂的采数/命中/回填反事实评级 · 30s 自动刷新
           <span v-if="report?.generated_at" class="ml-2">评级生成于 {{ report.generated_at }}</span>
         </p>
       </div>
@@ -559,17 +569,18 @@ onUnmounted(() => {
       </div>
 
       <!-- 评级汇总 -->
-      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         <div class="card"><div class="text-xs text-[var(--text-muted)]">采数缺口（门变盲）</div><div class="text-lg font-semibold mt-1 text-rose-400">{{ gapArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">enforce 降级复核</div><div class="text-lg font-semibold mt-1 text-orange-400">{{ degradedArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">建议复核（疑似误伤）</div><div class="text-lg font-semibold mt-1 text-amber-300">{{ reviewArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">可考虑升 enforce</div><div class="text-lg font-semibold mt-1 text-emerald-400">{{ promoteArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">enforce 维持</div><div class="text-lg font-semibold mt-1 text-emerald-300">{{ maintainArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">采集中</div><div class="text-lg font-semibold mt-1">{{ collectingArms.length }}</div></div>
+        <div class="card"><div class="text-xs text-[var(--text-muted)]">无成熟样本·不评价</div><div class="text-lg font-semibold mt-1 text-[var(--text-muted)]">{{ inertArms.length }}</div></div>
         <div class="card"><div class="text-xs text-[var(--text-muted)]">已关闭（off）</div><div class="text-lg font-semibold mt-1 text-[var(--text-muted)]">{{ offArms.length }}</div></div>
       </div>
 
-      <!-- 12 臂评级主表 -->
+      <!-- 风控臂评级主表 -->
       <div class="card overflow-x-auto">
         <div class="text-sm font-medium mb-2 px-1">风控臂评级明细（{{ arms.length }}）</div>
         <table class="w-full text-xs">

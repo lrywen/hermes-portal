@@ -72,6 +72,7 @@ const eventTypes = [
   { key: 'execute-fail', label: '执行失败' },
   { key: 'ta_skip', label: 'TA跳过' },
   { key: 'dsl_exit', label: 'DSL退出' },
+  { key: 'unstuck_close', label: '主动解套' },
   { key: 'loop_heartbeat', label: '心跳' },
   { key: 'loop_start', label: '循环' },
   { key: 'error', label: '错误' },
@@ -101,6 +102,7 @@ const EVENT_COLORS: Record<string, string> = {
   'execute-fail': 'text-rose-300 bg-rose-500/10 border-rose-500/30',
   ta_skip: 'text-slate-400 bg-slate-500/10 border-slate-500/30',
   dsl_exit: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
+  unstuck_close: 'text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/30',
   loop_heartbeat: 'text-slate-500 bg-slate-500/5 border-slate-500/20',
   loop_start: 'text-sky-300 bg-sky-500/10 border-sky-500/30',
   error: 'text-rose-400 bg-rose-500/15 border-rose-500/30',
@@ -119,6 +121,21 @@ const FIELD_LABELS: Record<string, string> = {
   // (supplemental audit 2026-09-02) scan 事件补「扫描耗时」；start_ts_ms 为
   // 扫描开始时刻(epoch ms)，已用于时间列显示，详情里不重复原始数字故跳过。
   scan_duration_ms: '扫描耗时',
+  // 主动解套 / 跨信号排名（新决策层透传字段）
+  trigger: '触发原因',
+  signal: '信号',
+  rank_score: '排名评分',
+};
+
+// 主动解套触发原因中文化
+const UNSTUCK_TRIGGER_LABELS: Record<string, string> = {
+  drawdown_pressure: '回撤承压主动减仓',
+  stuck_slots_full: '占用槽位、为新机会腾挪',
+};
+
+// 跨信号排名延迟信号中文化
+const TA_SIGNAL_LABELS: Record<string, string> = {
+  RANK_DEFER: '排名靠后暂缓',
 };
 
 const SIDE_LABELS: Record<string, string> = { long: '做多', short: '做空' };
@@ -409,6 +426,10 @@ function evDetailRows(ev: any): Array<[string, string]> {
       display = SIDE_LABELS[String(v)];
     } else if (k === 'scan_duration_ms' && typeof v === 'number') {
       display = v >= 1000 ? `${(v / 1000).toFixed(1)} 秒` : `${v} 毫秒`;
+    } else if (k === 'trigger' && UNSTUCK_TRIGGER_LABELS[String(v)]) {
+      display = UNSTUCK_TRIGGER_LABELS[String(v)];
+    } else if (k === 'signal' && TA_SIGNAL_LABELS[String(v)]) {
+      display = TA_SIGNAL_LABELS[String(v)];
     } else {
       display = String(v);
     }
