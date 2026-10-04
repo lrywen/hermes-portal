@@ -170,6 +170,16 @@ function modeBadge(mode: string) {
 }
 // 数据年龄：把「最新记录距今」转成可读短文本（<24h 显示小时，否则天）
 function ageHTxt(a: any): string {
+  // 事件型闸门（market_circuit 等）只在真正触发时写事件流，平稳期长期 0 条属
+  // 正常；心跳新鲜时显示心跳状态而非最后事件年龄，避免被误读为停采。
+  if (a?.heartbeat_ok) {
+    const s = Number(a?.heartbeat_age_sec);
+    if (!isNaN(s)) {
+      const t = s < 60 ? `${s.toFixed(0)}s` : `${(s / 60).toFixed(0)}m`;
+      return `心跳正常·待触发(${t})`;
+    }
+    return '心跳正常·待触发';
+  }
   const h = Number(a?.last_record_age_h);
   if (isNaN(h) || h < 0) return '无记录';
   if (h < 1) return '<1h前';
@@ -179,6 +189,8 @@ function ageHTxt(a: any): string {
 // 采数状态颜色：停滞/数据年龄越界用警示色，正常采数用中性
 function ageClass(a: any): string {
   if (a?.collection_stalled) return 'text-rose-400';
+  // 事件型闸门心跳新鲜：以中性色表示在线待触发，不再按最后事件年龄染琥珀。
+  if (a?.heartbeat_ok) return 'text-emerald-400';
   const h = Number(a?.last_record_age_h);
   if (isNaN(h)) return 'text-[var(--text-muted)]';
   return h >= 24 ? 'text-amber-300' : 'text-emerald-400';
@@ -621,7 +633,10 @@ onUnmounted(() => {
               <td class="py-2.5 px-3">
                 <span class="badge" :class="modeBadge(a.mode)">{{ a.mode }}</span>
                 <div v-if="a.mode !== 'off'" class="font-mono text-[10px] mt-1"
-                     :class="ageClass(a)" :title="'最新影子记录时间：' + (a.last_record_ms ? new Date(a.last_record_ms).toLocaleString('zh-CN') : '无')">
+                     :class="ageClass(a)"
+                     :title="a.heartbeat_ok
+                       ? '事件型闸门心跳新鲜（每 tick 评估中），平稳期待触发；最后事件：' + (a.last_record_ms ? new Date(a.last_record_ms).toLocaleString('zh-CN') : '无')
+                       : '最新影子记录时间：' + (a.last_record_ms ? new Date(a.last_record_ms).toLocaleString('zh-CN') : '无')">
                   {{ ageHTxt(a) }}
                 </div>
               </td>
