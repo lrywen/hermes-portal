@@ -25,6 +25,7 @@ use([CanvasRenderer, LineChart, GridComponent, TooltipComponent]);
 const toast = useToast();
 
 const loading = ref(true);
+const refreshing = ref(false);
 const error = ref('');
 const summary = ref<TraderSummary | null>(null);
 const closedTrades = ref<any[]>([]);
@@ -49,7 +50,8 @@ function handleSseEvent(data: any) {
   }
 }
 
-async function fetchAll() {
+async function fetchAll(manual = false) {
+  if (manual) refreshing.value = true;
   try {
     error.value = '';
     const [s, eq, t] = await Promise.all([
@@ -123,6 +125,7 @@ async function fetchAll() {
     error.value = e?.response?.data?.detail || e?.message || '加载仪表盘数据失败';
   } finally {
     loading.value = false;
+    refreshing.value = false;
   }
 }
 
@@ -195,7 +198,7 @@ onUnmounted(() => {
         <h2 class="text-xl font-semibold">交易总览</h2>
         <p class="text-sm text-[var(--text-muted)] mt-1">账户摘要、DEX 分布与权益走势（SSE 实时 + 60s 兜底）</p>
       </div>
-      <button class="btn" @click="fetchAll">🔄 刷新</button>
+      <button class="btn" :disabled="refreshing" @click="fetchAll(true)">{{ refreshing ? '刷新中…' : '🔄 刷新' }}</button>
     </header>
 
     <div v-if="loading" class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -204,14 +207,14 @@ onUnmounted(() => {
 
     <div v-else-if="error && !summary" class="card border-rose-500/40 bg-rose-500/10 text-rose-300">
       ⚠️ {{ error }}
-      <button class="btn ml-3" @click="fetchAll">重试</button>
+      <button class="btn ml-3" @click="fetchAll(true)">重试</button>
     </div>
 
     <template v-else>
       <!-- 刷新失败：保留上次数据，横幅提示 -->
       <div v-if="error" class="card border-amber-500/40 bg-amber-500/10 text-amber-300 text-sm py-2">
         ⚠️ 刷新失败（{{ error }}），展示最近一次成功数据
-        <button class="btn ml-3" @click="fetchAll">重试</button>
+        <button class="btn ml-3" @click="fetchAll(true)">重试</button>
       </div>
       <!-- KPI 卡片 -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">

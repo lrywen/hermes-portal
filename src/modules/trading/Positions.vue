@@ -19,6 +19,7 @@ const toast = useToast();
 const confirmStore = useConfirmStore();
 
 const loading = ref(true);
+const refreshing = ref(false);
 const error = ref('');
 const stale = ref(false);
 const positions = ref<TraderPosition[]>([]);
@@ -40,7 +41,8 @@ function scheduleRefresh() {
   }, 500);
 }
 
-async function load() {
+async function load(manual = false) {
+  if (manual) refreshing.value = true;
   try {
     error.value = '';
     const res = await http.get<TraderPosition[] | { positions: TraderPosition[] }>(
@@ -71,6 +73,7 @@ async function load() {
     if (positions.value.length) stale.value = true;
   } finally {
     loading.value = false;
+    refreshing.value = false;
   }
 }
 
@@ -154,7 +157,7 @@ onUnmounted(() => {
         <h2 class="text-xl font-semibold">当前持仓</h2>
         <p class="text-sm text-[var(--text-muted)] mt-1">实时持仓与盈亏（SSE 事件驱动 + 60s 兜底）</p>
       </div>
-      <button class="btn" @click="load">🔄 刷新</button>
+      <button class="btn" :disabled="refreshing" @click="load(true)">{{ refreshing ? '刷新中…' : '🔄 刷新' }}</button>
     </header>
 
     <div v-if="loading" class="card text-center py-10 text-[var(--text-muted)]">加载中...</div>

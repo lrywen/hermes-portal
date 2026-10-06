@@ -340,7 +340,7 @@ onUnmounted(() => { if (equityTimer) window.clearInterval(equityTimer); });
           class="px-3 py-1 text-xs rounded-full border transition-colors"
           :class="activeRange === key ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40' : 'text-[var(--text-muted)] border-[var(--border)] hover:bg-[var(--surface-hover)]'"
           @click="activeRange = key as RangeKey">{{ r.label }}</button>
-        <button class="btn text-xs ml-auto" @click="loadEquity">🔄 刷新</button>
+        <button class="btn text-xs ml-auto" :disabled="equityLoading" @click="loadEquity">{{ equityLoading ? '刷新中…' : '🔄 刷新' }}</button>
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-5 gap-4">

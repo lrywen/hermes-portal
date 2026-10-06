@@ -31,6 +31,7 @@ const toast = useToast();
 const confirmStore = useConfirmStore();
 
 const loading = ref(true);
+const refreshing = ref(false);
 const error = ref('');
 const account = ref<any>(null);
 const stats = ref<any>(null);
@@ -69,7 +70,8 @@ function scheduleRefresh() {
 // ---------------------------------------------------------------- data
 // 请求序号：每次 loadAll 递增，仅当仍是最新一次请求时才写回，防止旧响应乱序覆盖新数据
 let loadSeq = 0;
-async function loadAll() {
+async function loadAll(manual = false) {
+  if (manual) refreshing.value = true;
   const seq = ++loadSeq;
   try {
     error.value = '';
@@ -94,7 +96,10 @@ async function loadAll() {
     if (seq !== loadSeq) return;
     error.value = e?.response?.data?.detail || '加载影子账本失败';
   } finally {
-    if (seq === loadSeq) loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+      refreshing.value = false;
+    }
   }
 }
 
@@ -358,7 +363,7 @@ onUnmounted(() => {
         </p>
       </div>
       <div class="flex gap-2 items-center flex-wrap">
-        <button class="btn" @click="loadAll">🔄 刷新</button>
+        <button class="btn" :disabled="refreshing" @click="loadAll(true)">{{ refreshing ? '刷新中…' : '🔄 刷新' }}</button>
         <div v-if="canManage" class="flex items-center gap-1 card !py-1.5 !px-2">
           <span class="text-xs text-[var(--text-muted)]">追加资金</span>
           <input class="input !py-1" v-model="depositAmount" style="width: 100px" placeholder="金额" />
