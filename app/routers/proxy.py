@@ -94,6 +94,10 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     # refresh is a manual recompute (write) -> operator:mode. PROMOTE stays a
     # suggestion; no gate/config mutation happens through these endpoints.
     ("/api/dashboard/shadow-arms", "operator:mode", "operator:mode"),
+    # Funding-carry shadow-forward research surface (read-only). Trader side is
+    # operator-gated; BFF lets any dashboard:read user view the monitor; all
+    # writes fail-closed.
+    ("/api/dashboard/research/", "dashboard:read", _DENY),
     ("/api/dashboard/shadow/", "shadow:read", "shadow:manage"),  # SHADOW 影子账本（读=模拟数据查看，写=重置/手动平仓）
     # Audit 2026-09-07 (M4): 审计台账哈希链 + 对账状态。链校验/事件查询为审计面，
     # 读收紧到 admin:audit（admin/operator）；对账状态为运维风控面，读收紧到
@@ -317,6 +321,8 @@ async def menu(user: User = Depends(get_current_user)):
 
     items = [
         {"id": "overview", "label": "总览", "path": "/overview", "icon": "LayoutDashboard"},
+        {"id": "monitoring", "label": "系统监控", "path": "/system-monitor", "icon": "Activity"},
+        {"id": "funding-carry-forward", "label": "Funding-Carry 前瞻", "path": "/funding-carry-forward", "icon": "TrendingDown"},
         {
             "id": "trading",
             "label": "交易管理",

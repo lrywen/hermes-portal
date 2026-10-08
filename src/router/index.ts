@@ -9,6 +9,8 @@ const routes: RouteRecordRaw[] = [
     redirect: '/overview',
     children: [
       { path: 'overview', name: 'overview', component: () => import('@/modules/dashboard/Overview.vue'), meta: { title: '总览', perm: 'dashboard:read' } },
+      { path: 'system-monitor', name: 'system-monitor', component: () => import('@/modules/system/SystemMonitor.vue'), meta: { title: '系统监控', perm: 'dashboard:read' } },
+      { path: 'funding-carry-forward', name: 'funding-carry-forward', component: () => import('@/modules/research/FundingCarryForward.vue'), meta: { title: 'Funding-Carry 前瞻', perm: 'dashboard:read' } },
       { path: 'positions', name: 'positions', component: () => import('@/modules/trading/Positions.vue'), meta: { title: '持仓', perm: 'positions:read' } },
       { path: 'trades', name: 'trades', component: () => import('@/modules/trading/Trades.vue'), meta: { title: '交易历史', perm: 'trades:read' } },
       { path: 'shadow-book', name: 'shadow-book', component: () => import('@/modules/trading/ShadowBook.vue'), meta: { title: '影子账本', perm: 'shadow:read' } },
