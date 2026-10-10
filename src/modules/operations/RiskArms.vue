@@ -260,6 +260,40 @@ function backfillTxt(a: any) {
   return isNaN(r) ? '—' : (r * 100).toFixed(1) + '%';
 }
 
+// R5：walk-forward / DSR / PBO 稳健性（与 canary_pipeline.DEFAULT_GATES 阈值对齐）。
+// r5_stats 仅在跨 >=20 个独立日、样本充足时才由后端给出；否则整列显示「未达标·积累中」。
+const R5 = {
+  minWfr: 0.5,      // OOS 正均值窗占比 > 0.5
+  minDsr: 0.95,     // Deflated Sharpe p >= 0.95
+  maxPbo: 0.5,      // PBO < 0.5
+  minEdgeBps: 6.0,  // 净 edge（扣现实成本）>= 6bps
+};
+function r5Stats(a: any): any | null {
+  const r = a?.r5_stats;
+  if (!r || typeof r !== 'object') return null;
+  return r;
+}
+// 单条门槛判定，供逐项 ✓/○ 上色
+function r5Checks(r: any) {
+  const num = (v: any) => (v === null || v === undefined || isNaN(Number(v)) ? NaN : Number(v));
+  const wfr = num(r.wfr);
+  const dsr = num(r.dsr_p);
+  const pbo = num(r.pbo);
+  const edge = num(r.net_edge_bps);
+  const ciLo = num(r.bb_ci_lo_bps);
+  return [
+    { k: 'WFR', pass: !isNaN(wfr) && wfr > R5.minWfr, txt: isNaN(wfr) ? '—' : wfr.toFixed(2) },
+    { k: 'DSR', pass: !isNaN(dsr) && dsr >= R5.minDsr, txt: isNaN(dsr) ? '—' : dsr.toFixed(2) },
+    { k: 'PBO', pass: !isNaN(pbo) && pbo < R5.maxPbo, txt: isNaN(pbo) ? '—' : pbo.toFixed(2) },
+    { k: '净edge', pass: !isNaN(edge) && edge >= R5.minEdgeBps, txt: isNaN(edge) ? '—' : (edge > 0 ? '+' : '') + edge.toFixed(1) + 'bp' },
+    { k: 'CI下界', pass: !isNaN(ciLo) && ciLo > 0, txt: isNaN(ciLo) ? '—' : (ciLo > 0 ? '+' : '') + ciLo.toFixed(1) + 'bp' },
+  ];
+}
+// R5 总判定：四项核心（WFR/DSR/PBO/净edge）+ bootstrap CI 下界全过才算稳健
+function r5AllPass(r: any): boolean {
+  return r5Checks(r).every((c) => c.pass);
+}
+
 // 通用数值格式化（辩论 A/B、历史、臂证据共用）
 function pctTxt(v: any): string {
   const x = Number(v);
@@ -598,6 +632,10 @@ onUnmounted(() => {
                   title="仅统计命中且成熟、|反事实 pnl|≥$0.50 的实质性笔合计（滤除手续费/点差级小额噪声）。正=采纳该臂净亏钱（臂有害），负=采纳该臂净省钱（臂有益）；只写 pnl_pct、无金额维度的臂不适用">
                 实质性反事实合计
               </th>
+              <th class="py-2 px-3 font-medium whitespace-nowrap"
+                  title="R5 多维稳健性（跨独立日的 walk-forward / Deflated Sharpe / PBO / 净 edge / bootstrap CI 下界）。样本需跨 ≥20 个独立日才产出；与 canary 准入门槛同口径，全绿才具备进入待人工批准的条件">
+                R5 稳健性
+              </th>
               <th class="py-2 px-3 font-medium">说明</th>
               <th class="py-2 px-3 font-medium text-right">操作</th>
             </tr>
@@ -677,6 +715,26 @@ onUnmounted(() => {
                 </div>
                 <span v-else class="text-[var(--text-muted)]"
                       title="成熟命中样本不足，或该臂只写 pnl_pct 无金额维度">—</span>
+              </td>
+              <td class="py-2.5 px-3 whitespace-nowrap align-top">
+                <template v-if="r5Stats(a)">
+                  <div class="font-mono text-[11px] mb-0.5"
+                       :class="r5AllPass(r5Stats(a)) ? 'text-emerald-400' : 'text-amber-300'"
+                       :title="'独立日 ' + (a.independent_days ?? r5Stats(a).days ?? '—') + ' · WFE ' + (r5Stats(a).wfe ?? '—') + ' · OOS 正窗 ' + (r5Stats(a).oos_win_frac ?? '—')">
+                    {{ r5AllPass(r5Stats(a)) ? '✓ 稳健' : '○ 未全过' }}
+                    <span class="text-[10px] text-[var(--text-muted)]">· {{ a.independent_days ?? r5Stats(a).days }}d</span>
+                  </div>
+                  <div v-for="c in r5Checks(r5Stats(a))" :key="c.k"
+                       class="font-mono text-[10px] flex gap-1 leading-tight"
+                       :title="c.k + ' 准入门槛'">
+                    <span :class="c.pass ? 'text-emerald-400' : 'text-[var(--text-muted)]'">{{ c.pass ? '✓' : '○' }}</span>
+                    <span class="text-[var(--text-muted)]">{{ c.k }}</span>
+                    <span :class="c.pass ? 'text-emerald-300/90' : 'text-rose-300/90'">{{ c.txt }}</span>
+                  </div>
+                  <div v-if="a.realistic_fill_positive === false" class="font-mono text-[10px] text-rose-300/90 mt-0.5"
+                       title="计入现实滑点/手续费后净 edge 不为正，paper 成交不达标">现实成交 ✗</div>
+                </template>
+                <span v-else class="text-[var(--text-muted)]" title="跨独立日不足 20 天或样本不足，R5 尚无法产出">积累中</span>
               </td>
               <td class="py-2.5 px-3 min-w-[240px] align-top">
                 <div class="text-[var(--text-muted)]">{{ a.reason }}</div>
