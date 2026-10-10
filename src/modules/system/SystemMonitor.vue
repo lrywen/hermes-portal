@@ -5,7 +5,7 @@
  * 只传预注册 query key，BFF 固定 PromQL；本页不直接接触 Prometheus。
  * 30s 自动刷新；离开页面清理定时器。
  */
-import { onMounted, onUnmounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import http from '@/shared/api/client';
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
@@ -36,6 +36,15 @@ const heartbeatOpt = shallowRef<any>({});
 const riskBlocksOpt = shallowRef<any>({});
 const llmOpt = shallowRef<any>({});
 const systemOpt = shallowRef<any>({});
+
+const charts = computed(() => [
+  { title: '账户权益 (USD)', opt: equityOpt.value },
+  { title: '持仓数', opt: pnlPositionsOpt.value },
+  { title: '主循环心跳年龄 (s)', opt: heartbeatOpt.value },
+  { title: '风控闸门拦截次数（按闸门）', opt: riskBlocksOpt.value },
+  { title: 'LLM 熔断状态 (1=触发)', opt: llmOpt.value },
+  { title: '进程内存 RSS', opt: systemOpt.value },
+]);
 
 interface RangeResult {
   resultType: string;
@@ -97,6 +106,13 @@ function fmtAxis(v: number, unit: string): string {
   if (unit === 'bytes') return v >= 1e9 ? (v / 1e9).toFixed(1) + 'G' : (v / 1e6).toFixed(0) + 'M';
   if (unit === 's') return v.toFixed(0) + 's';
   return v.toFixed(0);
+}
+
+// 判断某图 option 是否有任意数据点；用于在「该时段确无事件」时给出明确空态，
+// 而不是渲染一块空白曲线（典型：近 6h 无风控拦截）。
+function hasSeries(opt: any): boolean {
+  const list: any[] = opt?.series || [];
+  return list.some((se) => Array.isArray(se?.data) && se.data.length > 0);
 }
 
 function joinLabels(m: any, keys: string[], fallback: string): string {
@@ -211,23 +227,16 @@ onUnmounted(() => {
 
     <!-- 图表 -->
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
-        <VChart :option="equityOpt" autoresize style="height: 260px" />
-      </div>
-      <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
-        <VChart :option="pnlPositionsOpt" autoresize style="height: 260px" />
-      </div>
-      <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
-        <VChart :option="heartbeatOpt" autoresize style="height: 260px" />
-      </div>
-      <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
-        <VChart :option="riskBlocksOpt" autoresize style="height: 260px" />
-      </div>
-      <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
-        <VChart :option="llmOpt" autoresize style="height: 260px" />
-      </div>
-      <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
-        <VChart :option="systemOpt" autoresize style="height: 260px" />
+      <div v-for="c in charts" :key="c.title"
+           class="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
+        <div class="mb-1 text-xs text-slate-400">{{ c.title }}</div>
+        <div class="relative">
+          <VChart :option="c.opt" autoresize style="height: 248px" />
+          <div v-if="!hasSeries(c.opt)"
+               class="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-slate-500">
+            近 6h 无数据
+          </div>
+        </div>
       </div>
     </div>
   </div>

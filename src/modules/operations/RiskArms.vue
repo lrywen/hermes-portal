@@ -197,6 +197,11 @@ const ARM_CN: Record<string, string> = {
   trend_filter_200ma: '日线 200SMA 趋势闸门',
   xs_reversal: '超卖反弹纯观察信号',
   regime_overlay: '震荡市自动降险姿态',
+  reasoning_effort_rollout: 'LLM 推理强度灰度（low 省 token/降延迟）',
+  completion_cap_shadow: 'LLM 总输出上限影子探针',
+  signal_ranking: '多信号横向排序择优',
+  unstucking: '套牢仓位主动解套',
+  coin_selection: '币种连续打分择优轮动',
 };
 const ARM_TITLE: Record<string, string> = {
   pullback: '上升趋势中有序回踩、未超买时的做多旁路信号（买跌不买涨，仅做多）',
@@ -211,6 +216,11 @@ const ARM_TITLE: Record<string, string> = {
   trend_filter_200ma: '价格在日线 200SMA 下方拦做多；24h 涨幅 10%~30% 的强势日内币可旁路',
   xs_reversal: '下跌趋势中深度回撤+活跃+RSI 超卖区间的反弹做多探针，仅观察不下单',
   regime_overlay: '宏观连续判为震荡时单向收紧姿态（限并发/禁空/半仓/关回踩），趋势恢复自动解除',
+  reasoning_effort_rollout: 'OpenAI reasoning_effort 灰度：实测 low 较 high 省约 39% 推理 token、48% 墙钟时间且不截断最终结论；shadow 仅记录反事实，enforce 按 sample_rate 比例真正附加该参数',
+  completion_cap_shadow: '纯反事实探针：用 max_completion_tokens 限制（推理+答案）总输出，记录该上限是否会截断输出及 token/耗时，永不改变真实请求；仅当影子显示截断罕见且结论仍可解析才升级',
+  signal_ranking: '在廉价闸门之后、付费 LLM 研究之前，对并发信号按质量（综合分/触发器质量/鲸鱼/CVD/流动性）横向排序 0–100，名额稀缺时优先高质量形态，并暂缓尾部以省 LLM 成本；shadow 只记录反事实不改下单',
+  unstucking: '被动等硬止损之外的主动解套：账户级回撤压力或套牢名额过多时，对水下仓位按紧急度排序，优先平掉离市价最近、能低成本可靠成交的，释放保证金给更高分信号；深套仓位仍交硬止损',
+  coin_selection: 'Forager 式连续选币：以短时波动（有行情可做）+ 换手/成交量（流动性可捕获）+ EMA 就绪度给全市场连续打分，替代 top-N 成交额/涨幅硬桶；pre_candle 零额外取数，post_candle 复用已拉 K 线',
 };
 function armCN(a: string) {
   return ARM_CN[a] || '';
