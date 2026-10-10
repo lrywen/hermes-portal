@@ -130,6 +130,21 @@ async def test_menu_risk_arms_visibility(client, tokens):
     assert "/config" in await paths_for("viewer")
 
 
+async def test_menu_no_dead_funding_carry_entry(client, tokens):
+    """已下线的 Funding-Carry 前瞻页不得再出现在任何角色的菜单中（死链回归）。"""
+    for role in ("viewer", "trader", "operator", "admin"):
+        resp = await client.get(
+            "/api/portal/menu",
+            headers={"Authorization": f"Bearer {tokens[role]}"},
+        )
+        assert resp.status_code == 200
+        paths = _menu_paths(resp.json().get("items", []))
+        assert "/funding-carry-forward" not in paths, f"角色 {role} 菜单残留死链"
+    # 对应转发规则也应已移除：未登记路径读登录即可、写 fail-closed
+    assert _required_permission("/api/dashboard/research/funding-carry", "GET") is None
+    assert _required_permission("/api/dashboard/research/funding-carry", "POST") is False
+
+
 def test_required_permission_rules_unit():
     """权限规则表的直接单元断言（不依赖 DB/网络），锁死本轮修正点。"""
     # risk-status 显式读规则

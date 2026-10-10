@@ -39,6 +39,14 @@ vi.mock('@/stores/toast', () => ({
   useToast: () => ({ ok: () => undefined, err: () => undefined }),
 }));
 
+// confirm store stub：通用确认弹窗（d15a7d8 引入）；默认解析为确认。
+vi.mock('@/stores/confirm', () => ({
+  useConfirmStore: () => ({
+    confirm: () => Promise.resolve(true),
+    settle: () => undefined,
+  }),
+}));
+
 // auth store stub：放开 shadow 只读与管理权限判断。
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({

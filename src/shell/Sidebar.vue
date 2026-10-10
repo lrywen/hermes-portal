@@ -65,6 +65,7 @@ function onNavigate() {
 // 简化版图标映射（用 unicode/emoji，避免引入图标库）
 const ICONS: Record<string, string> = {
   LayoutDashboard: '📊',
+  Activity: '💓',
   TrendingUp: '📈',
   Wallet: '💼',
   History: '🕐',

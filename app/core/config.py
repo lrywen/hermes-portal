@@ -61,6 +61,8 @@ class Settings:
         self.trader_url: str = os.getenv("TRADER_URL", "http://hermes-trader:8000")
         self.llm_url: str = os.getenv("LLM_URL", "http://litellm:4000")
         self.studio_url: str = os.getenv("STUDIO_URL", "http://hermes-studio:6060")
+        # Prometheus（监控栈，hermes-deploy_default 网络内别名 prometheus）
+        self.prometheus_url: str = os.getenv("PROMETHEUS_URL", "http://prometheus:9090")
 
         # CORS（本地开发允许 5173，生产由 Nginx 同源处理）
         cors_raw = os.getenv("PORTAL_CORS_ORIGINS", "http://localhost:5173")

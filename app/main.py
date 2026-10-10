@@ -21,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import get_settings
 from app.core.database import init_db
-from app.routers import alerts, audit, auth, proxy, push
+from app.routers import alerts, audit, auth, monitoring, proxy, push
 
 settings = get_settings()
 logging.basicConfig(
@@ -65,6 +65,7 @@ app.include_router(push.router)
 app.include_router(alerts.router)
 app.include_router(audit.router)
 app.include_router(proxy.router)
+app.include_router(monitoring.router)
 
 
 @app.get("/api/health", tags=["meta"])
