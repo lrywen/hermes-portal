@@ -98,7 +98,11 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     # posture (off/shadow/enforce) and blind-gap signals -> operator-only read;
     # refresh is a manual recompute (write) -> operator:mode. PROMOTE stays a
     # suggestion; no gate/config mutation happens through these endpoints.
-    ("/api/dashboard/shadow-arms", "operator:mode", "operator:mode"),
+    # Audit 2026-10-27：影子臂评级中心全部子路径（grades/grade-history/debate-ab/
+    # reflections/backfill-summary/regen-report/regen-status 读，refresh/regen-refresh 写）。
+    # 必须带结尾斜杠登记——旧的无斜杠条目只能 startswith 命中精确 "/shadow-arms"，
+    # 命中不到 "/shadow-arms/grades"；子路径此前是靠「未登记路径读放行」兜底才可达。
+    ("/api/dashboard/shadow-arms/", "operator:mode", "operator:mode"),
     ("/api/dashboard/shadow/", "shadow:read", "shadow:manage"),  # SHADOW 影子账本（读=模拟数据查看，写=重置/手动平仓）
     # Audit 2026-09-07 (M4): 审计台账哈希链 + 对账状态。链校验/事件查询为审计面，
     # 读收紧到 admin:audit（admin/operator）；对账状态为运维风控面，读收紧到
@@ -142,8 +146,10 @@ def _required_permission(path: str, method: str) -> "str | None | bool":
     for prefix, read_perm, write_perm in _PATH_RULES:
         if path.startswith(prefix):
             return read_perm if is_read else write_perm
-    # 未登记路径：读放行（登录即可，下游多为公开数据），写默认拒绝
-    return None if is_read else _DENY
+    # Audit 2026-10-27：未登记路径一律 fail-closed（读/写都拒绝）。
+    # 旧策略「未登记读放行」曾让 viewer 借未登记的 debug/microstructure 打挂 trader。
+    # 新增上游端点必须在 _PATH_RULES 显式登记并声明所需权限后才经 BFF 可达。
+    return _DENY
 
 
 async def _proxy_request(
@@ -168,7 +174,7 @@ async def _proxy_request(
         target_base,
     )
     if perm is False:
-        # fail-closed：该方法未被白名单显式放行（含未登记路径的写操作）
+        # fail-closed：该路径/方法未被白名单显式放行（含一切未登记路径的读与写）
         logger.warning(
             "[proxy] 403(deny) %s %s user=%s path not allowed",
             request.method, upstream_path, user.username,

@@ -8,7 +8,8 @@ BFF 代理链 RBAC 矩阵测试。
 - POST /api/hl/flatten-all 未登记为白名单写操作 → fail-closed 403（含 admin；
   一键全平仅能经运维台 terminal 路径）；
 - operator/terminal 写仅 admin（operator 角色无 operator:terminal）；
-- 未登记路径：读登录即放行、写一律 403。
+- 未登记路径：读/写一律 fail-closed 403（Audit 2026-10-27 收紧，原「未登记读放行」
+  曾让 viewer 借未登记的 debug/microstructure 打挂 trader）。
 
 下游 hermes-trader 由 conftest.fake_upstream 拦截，不产生真实网络请求。
 """
@@ -37,9 +38,9 @@ MATRIX = [
      {"viewer": 403, "trader": 403, "operator": 403, "admin": 200}),
     ("PUT", "/api/dashboard/config",
      {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
-    # 未登记路径：读登录放行、写 fail-closed
+    # 未登记路径：读/写一律 fail-closed（Audit 2026-10-27，含 admin）
     ("GET", "/api/some/new/read/endpoint",
-     {"viewer": 200, "trader": 200, "operator": 200, "admin": 200}),
+     {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
     ("POST", "/api/some/new/write/endpoint",
      {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
     # 本轮决策：flatten-all 不开放（fail-closed），admin 走代理链同样 403
@@ -48,8 +49,16 @@ MATRIX = [
     # /metrics 上下游监控不经 BFF 暴露
     ("GET", "/metrics",
      {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
-    # Audit 2026-09-07 (M2): 影子臂评级中心含闸门姿态/blind 信号，读/写均 operator:mode
+    # Audit 2026-09-07 (M2): 影子臂评级中心含闸门姿态/blind 信号，读/写均 operator:mode。
+    # 子路径（/shadow-arms/grades 等）必须靠带结尾斜杠的显式规则命中，fail-closed 后
+    # 不再有「未登记读放行」兜底。
     ("GET", "/api/dashboard/shadow-arms/grades",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("GET", "/api/dashboard/shadow-arms/backfill-summary",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("GET", "/api/dashboard/shadow-arms/regen-status",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("POST", "/api/dashboard/shadow-arms/regen-refresh",
      {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
     ("GET", "/api/dashboard/shadow-arms/grade-history?days=30",
      {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
@@ -148,8 +157,8 @@ async def test_menu_no_dead_funding_carry_entry(client, tokens):
         assert resp.status_code == 200
         paths = _menu_paths(resp.json().get("items", []))
         assert "/funding-carry-forward" not in paths, f"角色 {role} 菜单残留死链"
-    # 对应转发规则也应已移除：未登记路径读登录即可、写 fail-closed
-    assert _required_permission("/api/dashboard/research/funding-carry", "GET") is None
+    # 对应转发规则也应已移除：未登记路径读/写一律 fail-closed
+    assert _required_permission("/api/dashboard/research/funding-carry", "GET") is False
     assert _required_permission("/api/dashboard/research/funding-carry", "POST") is False
 
 
@@ -167,13 +176,20 @@ def test_required_permission_rules_unit():
     assert _required_permission("/api/hl/flatten-all", "POST") is False
     # /api/hl/ 读兜底为登录即可
     assert _required_permission("/api/hl/all-mids", "GET") is None
-    # 未登记写默认拒绝、未登记读登录放行
+    # 未登记路径：读/写默认一律拒绝（Audit 2026-10-27 fail-closed）
     assert _required_permission("/api/totally/new/path", "POST") is False
-    assert _required_permission("/api/totally/new/path", "GET") is None
-    # Audit 2026-09-07 (M2): 影子臂评级中心读/写均 operator:mode（含闸门姿态，operator-only）
+    assert _required_permission("/api/totally/new/path", "GET") is False
+    # Audit 2026-09-07 (M2): 影子臂评级中心读/写均 operator:mode（含闸门姿态，operator-only）。
+    # 子路径必须由带结尾斜杠的 /shadow-arms/ 规则命中（旧无斜杠条目命中不到子路径）。
     assert _required_permission("/api/dashboard/shadow-arms/grades", "GET") == "operator:mode"
     assert _required_permission("/api/dashboard/shadow-arms/grade-history", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/debate-ab", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/reflections", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/backfill-summary", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/regen-report", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/regen-status", "GET") == "operator:mode"
     assert _required_permission("/api/dashboard/shadow-arms/refresh", "POST") == "operator:mode"
+    assert _required_permission("/api/dashboard/shadow-arms/regen-refresh", "POST") == "operator:mode"
     # 连字符前缀不得误伤影子账本 shadow/（后者读 shadow:read、写 shadow:manage）
     assert _required_permission("/api/dashboard/shadow/book", "GET") == "shadow:read"
     assert _required_permission("/api/dashboard/shadow/reset", "POST") == "shadow:manage"
