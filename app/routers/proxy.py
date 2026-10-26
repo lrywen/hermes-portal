@@ -69,6 +69,11 @@ _PATH_RULES: list[tuple[str, "str | None", "str | bool"]] = [
     ("/api/dashboard/operator/mode", None, "operator:mode"),
     ("/api/dashboard/operator/trackers", "operator:mode", "operator:mode"),
     ("/api/dashboard/operator/config", "operator:mode", "operator:mode"),
+    # ---- 只读调试端点（重负载，扫读全天落盘成交）----
+    # Audit 2026-10-26 P0：debug/microstructure 曾因 BFF 未登记而落到「未登记
+    # 路径读放行」，任何登录用户（含 viewer）可触发，曾把 trader HTTP 层顶死。
+    # 收紧到 operator:mode；写一律拒绝（这些端点本就只读）。
+    ("/api/dashboard/debug/", "operator:mode", _DENY),
     # ---- 配置管理 ----
     ("/api/dashboard/config/backup", "config:read", "config:write"),
     ("/api/dashboard/config/rollback", None, "config:write"),

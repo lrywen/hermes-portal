@@ -72,6 +72,14 @@ MATRIX = [
      {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
     ("POST", "/api/dashboard/reconcile/status",
      {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
+    # Audit 2026-10-26 P0：重负载 microstructure debug 读收紧到 operator:mode，
+    # 写一律 fail-closed（端点本就只读；此前未登记而对 viewer 放行，曾打挂 trader）
+    ("GET", "/api/dashboard/debug/microstructure",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("GET", "/api/dashboard/debug/microstructure/BTC",
+     {"viewer": 403, "trader": 403, "operator": 200, "admin": 200}),
+    ("POST", "/api/dashboard/debug/microstructure",
+     {"viewer": 403, "trader": 403, "operator": 403, "admin": 403}),
 ]
 
 
@@ -176,3 +184,7 @@ def test_required_permission_rules_unit():
     assert _required_permission("/api/dashboard/ledger/verify", "POST") is False
     assert _required_permission("/api/dashboard/reconcile/status", "GET") == "operator:mode"
     assert _required_permission("/api/dashboard/reconcile/status", "POST") is False
+    # Audit 2026-10-26 P0：microstructure debug 读 operator:mode、写 fail-closed
+    assert _required_permission("/api/dashboard/debug/microstructure", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/debug/microstructure/BTC", "GET") == "operator:mode"
+    assert _required_permission("/api/dashboard/debug/microstructure", "POST") is False

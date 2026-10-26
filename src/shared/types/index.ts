@@ -166,9 +166,18 @@ export interface ConfigParityItem {
   live: unknown;
 }
 
+/** 门禁覆盖盲区项：未登记归属 / 已审查值漂移的叶（非空即门禁红）。 */
+export interface ConfigParityUncovered {
+  leaf: string;
+}
+
 export interface ConfigParity {
   dangerous_count: number;
+  /** 已审查但 canonical/live 漂移的叶数（危险项）。 */
+  uncovered_count: number;
   items: ConfigParityItem[];
+  /** 门禁覆盖盲区叶列表；非空意味着存在无覆盖保证的配置路径。 */
+  uncovered: ConfigParityUncovered[];
   ts: number;
 }
 

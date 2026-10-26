@@ -209,17 +209,22 @@ onUnmounted(() => { if (timer) window.clearInterval(timer); });
 
       <!-- 配置危险方向漂移（canonical 比 live 宽松；dangerous_count 必须为 0） -->
       <div v-if="parity" class="card"
-           :class="parity.dangerous_count > 0 ? 'border-rose-500/50 bg-rose-500/10' : ''">
+           :class="(parity.dangerous_count > 0 || parity.uncovered_count > 0) ? 'border-rose-500/50 bg-rose-500/10' : ''">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
           <h3 class="font-semibold flex items-center gap-2">
             配置漂移（丢键回落 canonical 是否放宽保护）
             <span :class="parity.dangerous_count > 0 ? 'badge badge-danger' : 'badge badge-ok'">
               {{ parity.dangerous_count > 0 ? `${parity.dangerous_count} 项危险` : '0 项危险' }}
             </span>
+            <span :class="parity.uncovered_count > 0 ? 'badge badge-danger' : 'badge badge-ok'"
+                  :title="'未登记归属 / 已审查值漂移的叶（门禁覆盖盲区），非空即门禁红'">
+              {{ parity.uncovered_count > 0 ? `盲区 ${parity.uncovered_count} 项` : '盲区 0 项' }}
+            </span>
           </h3>
         </div>
         <p class="text-[11px] text-[var(--text-muted)] leading-4">
           比较 canonical 默认与 live 配置：非零表示某保护项一旦丢键、深合并回落会静默放宽。
+          「盲区」为没有任何配置门禁覆盖保证的叶，非空意味着该路径漂移不会被门禁发现。
         </p>
         <div v-if="parity.dangerous_count > 0" class="mt-2 overflow-x-auto">
           <table class="w-full text-xs">
@@ -238,6 +243,15 @@ onUnmounted(() => { if (timer) window.clearInterval(timer); });
               </tr>
             </tbody>
           </table>
+        </div>
+        <div v-if="parity.uncovered_count > 0" class="mt-2 overflow-x-auto">
+          <div class="text-[11px] font-medium text-rose-300 mb-1">门禁覆盖盲区（{{ parity.uncovered_count }}）</div>
+          <div class="flex flex-wrap gap-1.5">
+            <span v-for="(u, i) in parity.uncovered" :key="'u' + i"
+                  class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+              {{ u.leaf }}
+            </span>
+          </div>
         </div>
       </div>
 
