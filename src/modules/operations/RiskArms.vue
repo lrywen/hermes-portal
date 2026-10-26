@@ -44,6 +44,15 @@ const reflections = ref<any[]>([]);
 // 两个观察口默认折叠（非主评级内容，按需展开）
 const showDebateAb = ref(false);
 const showReflections = ref(false);
+// 回测回放证据面（backfill-summary）+ 长周期信号 re-gen 报告（regen-report）与手动触发
+const backfill = ref<any>(null);
+const regen = ref<any>(null);
+const regenStatus = ref<any>(null);
+const showBackfill = ref(false);
+const showRegen = ref(false);
+const regenDays = ref(120);
+const regenBusy = ref(false);
+let regenPoll: number | null = null;
 
 // M5 趋势图 option（shallowRef：ECharts 大对象不走深响应）
 const verdictOption = shallowRef<any>({});
@@ -69,18 +78,23 @@ async function loadAll(showLoading = true, isRetry = false) {
   error.value = '';
   if (showLoading) loading.value = true;
   try {
-    const [g, h, dab, rf] = await Promise.all([
+    const [g, h, dab, rf, bf, rg] = await Promise.all([
       http.get(`${API}/grades`, { params: { windows: WINDOWS } }),
       // M9：趋势只看夜间 cron 快照，手动重评/手工追加（source=manual）不污染趋势
       http.get(`${API}/grade-history`, { params: { days: 30, limit: 400, source: 'cron' } }),
       // 辩论影子 A/B + 决策复盘（观察口，失败不拖垮主面板）
       http.get(`${API}/debate-ab`, { params: { days: 30 } }).catch(() => null),
       http.get(`${API}/reflections`, { params: { limit: 20 } }).catch(() => null),
+      // 回测回放证据面 + re-gen 报告（观察口；缺失/失败降级为空，不拖垮主面板）
+      http.get(`${API}/backfill-summary`).catch(() => null),
+      http.get(`${API}/regen-report`).catch(() => null),
     ]);
     report.value = g.data;
     history.value = Array.isArray(h.data?.snapshots) ? h.data.snapshots : [];
     debateAb.value = dab?.data ?? null;
     reflections.value = Array.isArray(rf?.data?.reflections) ? rf.data.reflections : [];
+    backfill.value = bf?.data ?? null;
+    regen.value = rg?.data ?? null;
     buildCharts();
   } catch (e: any) {
     // SWR 冷启动：grader 后台预热中会返回 503，短暂等待后自动重试一次，避免重启后误报红卡
@@ -107,6 +121,60 @@ async function refreshNow() {
   } finally {
     refreshing.value = false;
   }
+}
+
+async function pollRegenStatus() {
+  try {
+    const { data } = await http.get(`${API}/regen-status`);
+    regenStatus.value = data;
+    if (data?.running) {
+      regenBusy.value = true;
+      if (regenPoll === null) {
+        regenPoll = window.setInterval(pollRegenStatus, 5000);
+      }
+    } else {
+      regenBusy.value = false;
+      if (regenPoll !== null) {
+        window.clearInterval(regenPoll);
+        regenPoll = null;
+      }
+      if (data?.exit_code != null) {
+        // 一次运行已结束：重新拉取最新报告
+        http.get(`${API}/regen-report`).catch(() => null).then((r) => { regen.value = r?.data ?? null; });
+      }
+    }
+  } catch {
+    // 轮询失败不打扰；保留现有状态，下轮再试
+  }
+}
+
+async function runRegen() {
+  if (!canRefresh.value || regenBusy.value) return;
+  const days = Number(regenDays.value);
+  if (!days || days < 30 || days > 365) {
+    toast.err('回放天数需在 30–365 之间');
+    return;
+  }
+  regenBusy.value = true;
+  try {
+    const { data } = await http.post(`${API}/regen-refresh`, { days });
+    regenStatus.value = data;
+    toast.ok('已触发长周期信号 re-gen 回放（后台运行，分钟级；可看状态轮询）');
+    await pollRegenStatus();
+  } catch (e: any) {
+    regenBusy.value = false;
+    toast.err(e?.response?.data?.detail || '触发 re-gen 失败');
+  }
+}
+
+// 格式化：百分比（×100 显示，如 0.523 → 52.3%）与数值（×100 显示基点，如 0.03 → 3.0%）
+function fmtPct(v: any): string {
+  if (v === null || v === undefined || isNaN(Number(v))) return '—';
+  return (Number(v) * 100).toFixed(1) + '%';
+}
+function fmtNum(v: any): string {
+  if (v === null || v === undefined || isNaN(Number(v))) return '—';
+  return Number(v).toFixed(2);
 }
 
 // ---------------------------------------------------------------- derived
@@ -448,6 +516,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) window.clearInterval(timer);
   if (pendingRefresh !== null) window.clearTimeout(pendingRefresh);
+  if (regenPoll !== null) window.clearInterval(regenPoll);
+  regenPoll = null;
   sseUnsub?.();
   sseUnsub = null;
 });
@@ -609,6 +679,109 @@ onUnmounted(() => {
           </div>
           <p class="text-[11px] text-[var(--text-muted)] px-1">
             复盘仅用于审阅决策质量，并已自动注入下次研究提示；不改变仓位、闸门或配置。</p>
+        </div>
+      </div>
+
+      <!-- 回测回放证据面（backfill-summary）+ 长周期信号 re-gen（观察口，默认折叠） -->
+      <div class="card">
+        <button class="w-full flex items-center justify-between text-sm font-medium px-1"
+                @click="showBackfill = !showBackfill">
+          <span>回测回放证据面 · backfill-summary + 信号 re-gen（{{ backfill?.arms?.length ?? 0 }} 臂）</span>
+          <span class="text-xs text-[var(--text-muted)]">{{ showBackfill ? '收起 ▲' : '展开 ▼' }}</span>
+        </button>
+        <div v-if="showBackfill" class="mt-3 space-y-4">
+          <p class="text-[11px] text-[var(--text-muted)] px-1 leading-5">
+            展示 scripts/backfill_*.py 离线历史回放产出的反事实证据（只读）与
+            scripts/regen_param_sweep.py 的长周期信号 re-gen 报告；两者均不改变配置/闸门/下单。
+            re-gen 回放分钟级，operator 可手动触发。</p>
+
+          <!-- re-gen 报告 + 手动触发 -->
+          <div class="border border-[var(--border)] rounded-lg p-2.5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div class="text-xs font-medium">长周期信号 re-gen 报告
+                <span v-if="regen?.present" class="text-[var(--text-muted)] font-normal">（{{ regen.generated_at || regen.mtime || '' }} · {{ regen.days }}d · {{ regen.n_candidates ?? regen.n_coins ?? '—' }} 候选）</span>
+                <span v-else class="text-[var(--text-muted)] font-normal">（尚无报告）</span>
+              </div>
+              <div v-if="canRefresh" class="flex items-center gap-2">
+                <label class="text-xs text-[var(--text-muted)]">回放天数</label>
+                <input v-model.number="regenDays" type="number" min="30" max="365"
+                       class="w-20 bg-[var(--surface)] border border-[var(--border)] rounded px-1.5 py-1 text-xs font-mono"
+                       :disabled="regenBusy" />
+                <button class="btn btn-ghost text-xs" :disabled="regenBusy" @click="runRegen">
+                  {{ regenBusy ? '回放中...' : '⚙ 触发 re-gen' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="regenStatus?.running" class="text-xs text-amber-300 mb-2">
+              re-gen 回放运行中（{{ regenStatus.days }}d）... 已启动 {{ regenStatus.started_at }}
+            </div>
+            <template v-if="regen?.present">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div class="text-[var(--text-muted)]">回放窗口 <span class="text-[var(--text-fg)] font-mono">{{ regen.window ?? '—' }}</span></div>
+                <div class="text-[var(--text-muted)]">持有 bars <span class="text-[var(--text-fg)] font-mono">{{ regen.hold_bars ?? '—' }}</span></div>
+                <div class="text-[var(--text-muted)]">候选总数 <span class="text-[var(--text-fg)] font-mono">{{ regen.n_candidates ?? '—' }}</span></div>
+                <div class="text-[var(--text-muted)]">长72候选 <span class="text-[var(--text-fg)] font-mono">{{ regen.n_candidates_long72 ?? '—' }}</span></div>
+              </div>
+              <div v-if="regen.plateau_picks?.length" class="mt-2">
+                <div class="text-xs text-[var(--text-muted)] mb-1">高原参数选取（plateau picks）</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span v-for="p in regen.plateau_picks" :key="p.param"
+                        class="badge badge-muted font-mono text-[10px]">
+                    {{ p.param }}={{ p.value }}<span v-if="p.avoided_loss_per_block != null"> · 省{{ p.avoided_loss_per_block }}bp/笔</span>
+                  </span>
+                </div>
+              </div>
+              <div v-if="regen.axis_curves?.length" class="mt-2 text-xs text-[var(--text-muted)]">
+                {{ regen.axis_curves.length }} 条单轴曲线 · {{ regen.ta_late_entry_sweep_rows ?? 0 }} 行网格
+                （详情见 re-gen 报告，只读回放）
+              </div>
+            </template>
+            <div v-else-if="regen?.note" class="text-xs text-[var(--text-muted)]">{{ regen.note }}</div>
+            <div v-else class="text-xs text-[var(--text-muted)]">加载中/无 re-gen 报告。</div>
+          </div>
+
+          <!-- backfill-summary 各臂回放证据 -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-left text-[var(--text-muted)] border-b border-[var(--border)]">
+                  <th class="py-2 px-2 font-medium">风控臂</th>
+                  <th class="py-2 px-2 font-medium text-right">回放记录</th>
+                  <th class="py-2 px-2 font-medium text-right">胜率/有害率</th>
+                  <th class="py-2 px-2 font-medium text-right">平均 pct</th>
+                  <th class="py-2 px-2 font-medium text-right">中位 pct</th>
+                  <th class="py-2 px-2 font-medium text-right">min</th>
+                  <th class="py-2 px-2 font-medium text-right">max</th>
+                  <th class="py-2 px-2 font-medium">回放产物</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="a in (backfill?.arms || [])" :key="a.arm"
+                    class="border-b border-[var(--border)] last:border-0">
+                  <td class="py-1.5 px-2 font-mono whitespace-nowrap">{{ a.arm }}</td>
+                  <td class="py-1.5 px-2 text-right font-mono">{{ a.records ?? 0 }}</td>
+                  <td class="py-1.5 px-2 text-right font-mono"
+                      :class="a.pnl && Number(a.pnl.arm_harmful_rate) > 0.5 ? 'text-rose-400' : 'text-[var(--text-muted)]'"
+                      :title="a.semantics || ''">
+                    {{ a.pnl ? fmtPct(a.pnl.win_rate ?? a.pnl.arm_harmful_rate) : '—' }}
+                  </td>
+                  <td class="py-1.5 px-2 text-right font-mono">{{ a.pnl ? fmtNum(a.pnl.avg_pct) + '%' : '—' }}</td>
+                  <td class="py-1.5 px-2 text-right font-mono">{{ a.pnl ? fmtNum(a.pnl.median_pct) + '%' : '—' }}</td>
+                  <td class="py-1.5 px-2 text-right font-mono text-[var(--text-muted)]">{{ a.pnl ? fmtNum(a.pnl.min_pct) : '—' }}</td>
+                  <td class="py-1.5 px-2 text-right font-mono text-[var(--text-muted)]">{{ a.pnl ? fmtNum(a.pnl.max_pct) : '—' }}</td>
+                  <td class="py-1.5 px-2 text-[var(--text-muted)] whitespace-nowrap">
+                    <template v-if="a.present">{{ a.file }}</template>
+                    <template v-else>{{ a.note || '无回放产物' }}</template>
+                  </td>
+                </tr>
+                <tr v-if="!(backfill?.arms?.length)">
+                  <td colspan="8" class="py-6 text-center text-[var(--text-muted)]">
+                    回放证据面暂不可用（backfill-summary 未返回或缺失）。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
